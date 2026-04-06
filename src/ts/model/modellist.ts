@@ -555,6 +555,7 @@ export async function registerCopilotModelsDynamic() {
 
             const isAnthropic = model.vendor === 'Anthropic'
             const isResponsesOnly = model.supportedEndpoints.length === 1 && model.supportedEndpoints[0] === '/responses'
+            const usesCompletionTokens = !isAnthropic && model.id.startsWith('gpt-5')
 
             const format = isAnthropic
                 ? LLMFormat.Anthropic
@@ -571,6 +572,9 @@ export async function registerCopilotModelsDynamic() {
                 }
             } else {
                 flags.push(LLMFlags.hasFullSystemPrompt)
+                if (usesCompletionTokens) {
+                    flags.push(LLMFlags.OAICompletionTokens)
+                }
             }
 
             const parameters: LLMParameter[] = isAnthropic

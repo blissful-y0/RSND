@@ -305,7 +305,11 @@ export async function requestOpenAI(arg:RequestDataArgumentExtended):Promise<req
         }
     
         const mistralUrl = arg.customURL ?? "https://api.mistral.ai/v1/chat/completions"
-        const res = await globalFetch(mistralUrl, { ...targs, ...getLocalNetworkRequestOptions(mistralUrl) })
+        const res = await globalFetch(mistralUrl, {
+            ...targs,
+            proxyPolicy: arg.proxyPolicy,
+            ...getLocalNetworkRequestOptions(mistralUrl),
+        })
 
         const dat = res.data as any
         if(res.ok){
@@ -630,6 +634,7 @@ export async function requestOpenAI(arg:RequestDataArgumentExtended):Promise<req
             signal: arg.abortSignal,
             chatId: arg.chatId,
             interceptor: 'openai_streaming',
+            proxyPolicy: arg.proxyPolicy,
             ...getLocalNetworkRequestOptions(replacerURL),
         })
 
@@ -694,6 +699,7 @@ async function requestHTTPOpenAI(replacerURL:string,body:any, headers:Record<str
         chatId: arg.chatId,
         interceptor: 'openai_basic',
         plainFetchDeforce: !!arg.extraHeaders,
+        proxyPolicy: arg.proxyPolicy,
         ...getLocalNetworkRequestOptions(replacerURL),
     })
 
@@ -965,6 +971,7 @@ export async function requestOpenAILegacyInstruct(arg:RequestDataArgumentExtende
         },
         chatId: arg.chatId,
         abortSignal: arg.abortSignal,
+        proxyPolicy: arg.proxyPolicy,
         ...getLocalNetworkRequestOptions(completionsUrl),
     });
 
@@ -1058,7 +1065,7 @@ export async function requestOpenAIResponseAPI(arg:RequestDataArgumentExtended):
         max_output_tokens: maxTokens,
         tools: [],
         store: false
-    }, ['temperature', 'top_p'], {}, arg.mode, {
+    }, arg.modelInfo.parameters ?? ['temperature', 'top_p'], {}, arg.mode, {
         modelId: arg.modelInfo.id
     })
 
@@ -1152,6 +1159,7 @@ export async function requestOpenAIResponseAPI(arg:RequestDataArgumentExtended):
         abortSignal: arg.abortSignal,
         interceptor: 'openai_response_api',
         plainFetchDeforce: !!arg.extraHeaders,
+        proxyPolicy: arg.proxyPolicy,
         ...getLocalNetworkRequestOptions(requestURL),
     });
 
@@ -1430,6 +1438,7 @@ function wrapToolStream(
                                 signal: arg.abortSignal,
                                 chatId: arg.chatId,
                                 interceptor: 'openai_tool',
+                                proxyPolicy: arg.proxyPolicy,
                                 ...getLocalNetworkRequestOptions(replacerURL),
                             })
                             

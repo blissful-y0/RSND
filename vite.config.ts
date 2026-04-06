@@ -37,6 +37,25 @@ export default defineConfig(({command, mode}) => {
       host: '0.0.0.0', // listen on all addresses
       port: 5174,
       strictPort: true,
+      proxy: {
+        '/api': {
+          target: 'http://127.0.0.1:6001',
+          changeOrigin: true,
+        },
+        '/hub-proxy': {
+          target: 'http://127.0.0.1:6001',
+          changeOrigin: true,
+        },
+        '/proxy2': {
+          target: 'http://127.0.0.1:6001',
+          changeOrigin: true,
+        },
+        '/proxy-stream-jobs': {
+          target: 'http://127.0.0.1:6001',
+          changeOrigin: true,
+          ws: true,
+        },
+      },
       // hmr: false,
     },
     // to make use of `TAURI_ENV_DEBUG` and other env variables

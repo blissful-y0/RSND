@@ -12,7 +12,7 @@
     import DropList from "src/lib/SideBars/DropList.svelte";
     import { PlusIcon, TrashIcon, HardDriveUploadIcon, DownloadIcon, UploadIcon, CheckCircleIcon, XCircleIcon, LoaderIcon } from "@lucide/svelte";
     import { validateCopilotToken, fetchCopilotUsage, type CopilotUsageInfo } from "src/ts/process/request/copilot";
-    import { validateNanoGPTKey, fetchNanoGPTBalance, fetchNanoGPTUsage, type NanoGPTBalance, type NanoGPTUsageInfo } from "src/ts/process/request/nanogpt";
+    import { validateNanoGPTKey, fetchNanoGPTBalance, fetchNanoGPTUsage, type NanoGPTBalance, type NanoGPTUsageInfo, type NanoGPTUsageMetric } from "src/ts/process/request/nanogpt";
     import TextInput from "src/lib/UI/GUI/TextInput.svelte";
     import NumberInput from "src/lib/UI/GUI/NumberInput.svelte";
     import SliderInput from "src/lib/UI/GUI/SliderInput.svelte";
@@ -35,6 +35,7 @@
     import { allBasicParameterItems } from "src/ts/setting/botSettingsParamsData";
     import SeparateParametersSection from "./SeparateParametersSection.svelte";
     import AuxModelSelectors from './Model/AuxModelSelectors.svelte'
+    import { SUBMODEL_PARAMETER_LOCATION_HINT } from "src/ts/setting/auxModelCopy";
     
     let tokens = $state({
         mainPrompt: 0,
@@ -201,6 +202,26 @@
             nanogptModelSyncInFlight = false
         }
     }
+
+    function formatUsageCount(value: number | null) {
+        if (value === null) return 'No limit'
+        return new Intl.NumberFormat().format(value)
+    }
+
+    function formatUsagePercent(value: number) {
+        return `${value % 1 === 0 ? value.toFixed(0) : value.toFixed(1)}%`
+    }
+
+    function formatUsageReset(value: number | null) {
+        if (value === null) return ''
+        return new Date(value).toLocaleDateString()
+    }
+
+    function usageBarColor(metric: NanoGPTUsageMetric) {
+        if (metric.progress >= 0.9) return 'bg-draculared'
+        if (metric.progress >= 0.7) return 'bg-yellow-500'
+        return 'bg-green-500'
+    }
 </script>
 <h2 class="mb-2 text-2xl font-bold mt-2">{language.chatBot}</h2>
 
@@ -235,6 +256,7 @@
 
     <span class="text-textcolor mt-2">{language.submodel} <Help key="submodel"/></span>
     <ModelList bind:value={DBState.db.subModel}/>
+    <p class="text-xs text-textcolor2 mt-1 mb-2">{SUBMODEL_PARAMETER_LOCATION_HINT}</p>
 
     {#if modelInfo.provider === LLMProvider.GoogleCloud || subModelInfo.provider === LLMProvider.GoogleCloud}
         <span class="text-textcolor">GoogleAI API Key</span>
@@ -468,42 +490,76 @@
                     {/if}
                     {#if nanogptUsage}
                         <div class="text-xs text-textcolor2 space-y-2">
-                            <div class="flex gap-3">
+                            <div class="flex gap-3 flex-wrap">
                                 <span>Status: <span class="text-textcolor font-medium capitalize">{nanogptUsage.state}</span></span>
+                                <span>Provider: <span class="text-textcolor font-medium capitalize">{nanogptUsage.provider}</span></span>
                                 {#if nanogptUsage.periodEnd}
                                     <span>Period ends: <span class="text-textcolor">{new Date(nanogptUsage.periodEnd).toLocaleDateString()}</span></span>
                                 {/if}
+                                {#if nanogptUsage.cancelAt}
+                                    <span>Cancel at: <span class="text-textcolor">{new Date(nanogptUsage.cancelAt).toLocaleDateString()}</span></span>
+                                {/if}
                             </div>
-                            <div>
-                                <div class="flex justify-between mb-1">
-                                    <span>Daily</span>
-                                    <span>{nanogptUsage.daily.used} / {nanogptUsage.limits.daily}</span>
+                            {#if nanogptUsage.weeklyInputTokens}
+                                <div>
+                                    <div class="flex justify-between mb-1 gap-3">
+                                        <span>Weekly Input Tokens</span>
+                                        <span>{formatUsageCount(nanogptUsage.weeklyInputTokens.used)} / {formatUsageCount(nanogptUsage.weeklyInputTokens.limit)}</span>
+                                    </div>
+                                    <div class="w-full bg-darkborderc rounded-full h-1.5">
+                                        <div
+                                            class={`h-1.5 rounded-full transition-all ${usageBarColor(nanogptUsage.weeklyInputTokens)}`}
+                                            style="width: {Math.min(nanogptUsage.weeklyInputTokens.progress * 100, 100)}%"
+                                        ></div>
+                                    </div>
+                                    <div class="flex justify-between mt-1">
+                                        <span>{formatUsagePercent(nanogptUsage.weeklyInputTokens.percentUsed)} used</span>
+                                        {#if nanogptUsage.weeklyInputTokens.resetAt}
+                                            <span>Resets: {formatUsageReset(nanogptUsage.weeklyInputTokens.resetAt)}</span>
+                                        {/if}
+                                    </div>
                                 </div>
-                                <div class="w-full bg-darkborderc rounded-full h-1.5">
-                                    <div
-                                        class="h-1.5 rounded-full transition-all"
-                                        class:bg-green-500={nanogptUsage.daily.percentUsed < 0.7}
-                                        class:bg-yellow-500={nanogptUsage.daily.percentUsed >= 0.7 && nanogptUsage.daily.percentUsed < 0.9}
-                                        class:bg-draculared={nanogptUsage.daily.percentUsed >= 0.9}
-                                        style="width: {Math.min(nanogptUsage.daily.percentUsed * 100, 100)}%"
-                                    ></div>
+                            {/if}
+                            {#if nanogptUsage.dailyImages}
+                                <div>
+                                    <div class="flex justify-between mb-1 gap-3">
+                                        <span>Daily Images</span>
+                                        <span>{formatUsageCount(nanogptUsage.dailyImages.used)} / {formatUsageCount(nanogptUsage.dailyImages.limit)}</span>
+                                    </div>
+                                    <div class="w-full bg-darkborderc rounded-full h-1.5">
+                                        <div
+                                            class={`h-1.5 rounded-full transition-all ${usageBarColor(nanogptUsage.dailyImages)}`}
+                                            style="width: {Math.min(nanogptUsage.dailyImages.progress * 100, 100)}%"
+                                        ></div>
+                                    </div>
+                                    <div class="flex justify-between mt-1">
+                                        <span>{formatUsagePercent(nanogptUsage.dailyImages.percentUsed)} used</span>
+                                        {#if nanogptUsage.dailyImages.resetAt}
+                                            <span>Resets: {formatUsageReset(nanogptUsage.dailyImages.resetAt)}</span>
+                                        {/if}
+                                    </div>
                                 </div>
-                            </div>
-                            <div>
-                                <div class="flex justify-between mb-1">
-                                    <span>Monthly</span>
-                                    <span>{nanogptUsage.monthly.used} / {nanogptUsage.limits.monthly}</span>
+                            {/if}
+                            {#if nanogptUsage.dailyInputTokens}
+                                <div>
+                                    <div class="flex justify-between mb-1 gap-3">
+                                        <span>Daily Input Tokens</span>
+                                        <span>{formatUsageCount(nanogptUsage.dailyInputTokens.used)} / {formatUsageCount(nanogptUsage.dailyInputTokens.limit)}</span>
+                                    </div>
+                                    <div class="w-full bg-darkborderc rounded-full h-1.5">
+                                        <div
+                                            class={`h-1.5 rounded-full transition-all ${usageBarColor(nanogptUsage.dailyInputTokens)}`}
+                                            style="width: {Math.min(nanogptUsage.dailyInputTokens.progress * 100, 100)}%"
+                                        ></div>
+                                    </div>
+                                    <div class="flex justify-between mt-1">
+                                        <span>{formatUsagePercent(nanogptUsage.dailyInputTokens.percentUsed)} used</span>
+                                        {#if nanogptUsage.dailyInputTokens.resetAt}
+                                            <span>Resets: {formatUsageReset(nanogptUsage.dailyInputTokens.resetAt)}</span>
+                                        {/if}
+                                    </div>
                                 </div>
-                                <div class="w-full bg-darkborderc rounded-full h-1.5">
-                                    <div
-                                        class="h-1.5 rounded-full transition-all"
-                                        class:bg-green-500={nanogptUsage.monthly.percentUsed < 0.7}
-                                        class:bg-yellow-500={nanogptUsage.monthly.percentUsed >= 0.7 && nanogptUsage.monthly.percentUsed < 0.9}
-                                        class:bg-draculared={nanogptUsage.monthly.percentUsed >= 0.9}
-                                        style="width: {Math.min(nanogptUsage.monthly.percentUsed * 100, 100)}%"
-                                    ></div>
-                                </div>
-                            </div>
+                            {/if}
                         </div>
                     {:else if !nanogptInfoLoading && !nanogptBalance}
                         <span class="text-textcolor2 text-xs">Click Refresh to load balance and usage info</span>

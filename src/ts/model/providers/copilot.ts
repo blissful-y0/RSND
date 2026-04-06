@@ -126,11 +126,12 @@ export const CopilotModels: LLMModel[] = [
         internalID: 'gpt-5.4',
         shortName: "GH Copilot 5.4",
         provider: LLMProvider.Copilot,
-        format: LLMFormat.OpenAIResponseAPI,
+        format: LLMFormat.OpenAICompatible,
         flags: [
             LLMFlags.hasImageInput,
             LLMFlags.hasFullSystemPrompt,
             LLMFlags.hasStreaming,
+            LLMFlags.OAICompletionTokens,
         ],
         parameters: GPT5Parameters,
         tokenizer: LLMTokenizer.tiktokenO200Base,
@@ -147,6 +148,7 @@ export const CopilotModels: LLMModel[] = [
             LLMFlags.hasImageInput,
             LLMFlags.hasFullSystemPrompt,
             LLMFlags.hasStreaming,
+            LLMFlags.OAICompletionTokens,
         ],
         parameters: GPT5Parameters,
         tokenizer: LLMTokenizer.tiktokenO200Base,
@@ -162,9 +164,11 @@ export const CopilotModels: LLMModel[] = [
             LLMFlags.hasImageInput,
             LLMFlags.hasFullSystemPrompt,
             LLMFlags.hasStreaming,
+            LLMFlags.OAICompletionTokens,
         ],
         parameters: GPT5Parameters,
         tokenizer: LLMTokenizer.tiktokenO200Base,
+        recommended: true,
     },
     {
         name: "GPT-5 Mini",
@@ -177,6 +181,7 @@ export const CopilotModels: LLMModel[] = [
             LLMFlags.hasImageInput,
             LLMFlags.hasFullSystemPrompt,
             LLMFlags.hasStreaming,
+            LLMFlags.OAICompletionTokens,
         ],
         parameters: GPT5Parameters,
         tokenizer: LLMTokenizer.tiktokenO200Base,
@@ -230,10 +235,10 @@ export const CopilotModels: LLMModel[] = [
         tokenizer: LLMTokenizer.GoogleCloud,
     },
     {
-        name: "Gemini 3 Flash",
+        name: "Gemini 3 Flash Preview",
         id: 'copilot-gemini-3-flash-preview',
         internalID: 'gemini-3-flash-preview',
-        shortName: "GH Copilot 3 Flash",
+        shortName: "GH Copilot 3 Flash Preview",
         provider: LLMProvider.Copilot,
         format: LLMFormat.OpenAICompatible,
         flags: [
@@ -243,6 +248,7 @@ export const CopilotModels: LLMModel[] = [
         ],
         parameters: OpenAIParameters,
         tokenizer: LLMTokenizer.GoogleCloud,
+        recommended: true,
     },
     {
         name: "Gemini 3 Pro",
@@ -260,7 +266,7 @@ export const CopilotModels: LLMModel[] = [
         tokenizer: LLMTokenizer.GoogleCloud,
     },
     {
-        name: "Gemini 3.1 Pro",
+        name: "Gemini 3.1 Pro Preview",
         id: 'copilot-gemini-3.1-pro-preview',
         internalID: 'gemini-3.1-pro-preview',
         shortName: "GH Copilot 3.1 Pro",
@@ -273,5 +279,6 @@ export const CopilotModels: LLMModel[] = [
         ],
         parameters: OpenAIParameters,
         tokenizer: LLMTokenizer.GoogleCloud,
+        recommended: true,
     },
 ]

@@ -34,6 +34,7 @@ export const NanoGPTModels: LLMModel[] = [
         ],
         parameters: GPT5Parameters,
         tokenizer: LLMTokenizer.tiktokenO200Base,
+        recommended: true,
     },
     {
         name: "GPT-5.1",
@@ -96,7 +97,7 @@ export const NanoGPTModels: LLMModel[] = [
             LLMFlags.hasStreaming,
         ],
         parameters: OpenAIParameters,
-        tokenizer: LLMTokenizer.Claude,
+        tokenizer: LLMTokenizer.tiktokenO200Base,
         recommended: true
     },
     {
@@ -112,7 +113,7 @@ export const NanoGPTModels: LLMModel[] = [
             LLMFlags.hasStreaming,
         ],
         parameters: OpenAIParameters,
-        tokenizer: LLMTokenizer.Claude,
+        tokenizer: LLMTokenizer.tiktokenO200Base,
         recommended: true
     },
     {
@@ -128,7 +129,7 @@ export const NanoGPTModels: LLMModel[] = [
             LLMFlags.hasStreaming,
         ],
         parameters: OpenAIParameters,
-        tokenizer: LLMTokenizer.Claude,
+        tokenizer: LLMTokenizer.tiktokenO200Base,
     },
     {
         name: "Claude 4.5 Haiku",
@@ -143,7 +144,7 @@ export const NanoGPTModels: LLMModel[] = [
             LLMFlags.hasStreaming,
         ],
         parameters: OpenAIParameters,
-        tokenizer: LLMTokenizer.Claude,
+        tokenizer: LLMTokenizer.tiktokenO200Base,
     },
 
     // ── Google (via NanoGPT) ────────────────────────────────────────
@@ -161,7 +162,7 @@ export const NanoGPTModels: LLMModel[] = [
             LLMFlags.hasStreaming,
         ],
         parameters: OpenAIParameters,
-        tokenizer: LLMTokenizer.GoogleCloud,
+        tokenizer: LLMTokenizer.tiktokenO200Base,
     },
     {
         name: "Gemini 3 Flash",
@@ -176,7 +177,7 @@ export const NanoGPTModels: LLMModel[] = [
             LLMFlags.hasStreaming,
         ],
         parameters: OpenAIParameters,
-        tokenizer: LLMTokenizer.GoogleCloud,
+        tokenizer: LLMTokenizer.tiktokenO200Base,
     },
     {
         name: "Gemini 3 Pro",
@@ -191,7 +192,7 @@ export const NanoGPTModels: LLMModel[] = [
             LLMFlags.hasStreaming,
         ],
         parameters: OpenAIParameters,
-        tokenizer: LLMTokenizer.GoogleCloud,
+        tokenizer: LLMTokenizer.tiktokenO200Base,
     },
 
     // ── DeepSeek (via NanoGPT) ──────────────────────────────────────
@@ -208,7 +209,7 @@ export const NanoGPTModels: LLMModel[] = [
             LLMFlags.hasStreaming,
         ],
         parameters: OpenAIParameters,
-        tokenizer: LLMTokenizer.DeepSeek,
+        tokenizer: LLMTokenizer.tiktokenO200Base,
     },
     {
         name: "DeepSeek V3",
@@ -222,7 +223,7 @@ export const NanoGPTModels: LLMModel[] = [
             LLMFlags.hasStreaming,
         ],
         parameters: OpenAIParameters,
-        tokenizer: LLMTokenizer.DeepSeek,
+        tokenizer: LLMTokenizer.tiktokenO200Base,
     },
 
     // ── xAI (via NanoGPT) ───────────────────────────────────────────
@@ -246,7 +247,7 @@ export const NanoGPTModels: LLMModel[] = [
     // ── Google Gemma (via NanoGPT) ──────────────────────────────────
 
     {
-        name: "Gemma 4 31B IT",
+        name: "Gemma 4 31B Instruct",
         id: 'nanogpt-google/gemma-4-31b-it',
         internalID: 'google/gemma-4-31b-it',
         shortName: "NanoGPT Gemma 4 31B",
@@ -258,6 +259,37 @@ export const NanoGPTModels: LLMModel[] = [
         ],
         parameters: OpenAIParameters,
         tokenizer: LLMTokenizer.tiktokenO200Base,
+        recommended: true,
+    },
+    {
+        name: "Gemma 4 26B A4B Instruct",
+        id: 'nanogpt-google/gemma-4-26b-a4b-it',
+        internalID: 'google/gemma-4-26b-a4b-it',
+        shortName: "NanoGPT Gemma 4 26B",
+        provider: LLMProvider.NanoGPT,
+        format: LLMFormat.OpenAICompatible,
+        flags: [
+            LLMFlags.hasFullSystemPrompt,
+            LLMFlags.hasStreaming,
+        ],
+        parameters: OpenAIParameters,
+        tokenizer: LLMTokenizer.tiktokenO200Base,
+        recommended: true,
+    },
+    {
+        name: "Gemma 4 26B A4B Thinking",
+        id: 'nanogpt-google/gemma-4-26b-a4b-it:thinking',
+        internalID: 'google/gemma-4-26b-a4b-it:thinking',
+        shortName: "NanoGPT Gemma 4 26B Think",
+        provider: LLMProvider.NanoGPT,
+        format: LLMFormat.OpenAICompatible,
+        flags: [
+            LLMFlags.hasFullSystemPrompt,
+            LLMFlags.hasStreaming,
+        ],
+        parameters: OpenAIParameters,
+        tokenizer: LLMTokenizer.tiktokenO200Base,
+        recommended: true,
     },
 
     // ── ZAI (via NanoGPT) ───────────────────────────────────────────
@@ -275,6 +307,7 @@ export const NanoGPTModels: LLMModel[] = [
         ],
         parameters: OpenAIParameters,
         tokenizer: LLMTokenizer.tiktokenO200Base,
+        recommended: true,
     },
     {
         name: "GLM 5.1 Thinking",
@@ -289,5 +322,6 @@ export const NanoGPTModels: LLMModel[] = [
         ],
         parameters: OpenAIParameters,
         tokenizer: LLMTokenizer.tiktokenO200Base,
+        recommended: true,
     },
 ]

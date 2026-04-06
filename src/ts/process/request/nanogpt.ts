@@ -157,6 +157,7 @@ export async function fetchNanoGPTBalance(apiKey: string): Promise<{balance: Nan
     try {
         const res = await fetchNative('https://nano-gpt.com/api/check-balance', {
             method: 'POST',
+            body: '{}',
             headers: {
                 'x-api-key': apiKey,
                 'Content-Type': 'application/json',
@@ -184,10 +185,59 @@ export async function fetchNanoGPTBalance(apiKey: string): Promise<{balance: Nan
 export interface NanoGPTUsageInfo {
     active: boolean
     state: string
-    limits: { daily: number, monthly: number }
-    daily: { used: number, remaining: number, percentUsed: number, resetAt: number }
-    monthly: { used: number, remaining: number, percentUsed: number, resetAt: number }
+    provider: string
+    providerStatus: string
+    providerStatusRaw: string
+    allowOverage: boolean
+    cancelAt: string | null
+    cancelAtPeriodEnd: boolean
+    graceUntil: string | null
     periodEnd: string | null
+    weeklyInputTokens: NanoGPTUsageMetric | null
+    dailyInputTokens: NanoGPTUsageMetric | null
+    dailyImages: NanoGPTUsageMetric | null
+}
+
+export interface NanoGPTUsageMetric {
+    limit: number | null
+    used: number
+    remaining: number | null
+    percentUsed: number
+    progress: number
+    resetAt: number | null
+}
+
+function toFiniteNumber(value: unknown): number | null {
+    if (typeof value === 'number' && Number.isFinite(value)) return value
+    if (typeof value === 'string' && value.trim() !== '') {
+        const parsed = Number(value)
+        return Number.isFinite(parsed) ? parsed : null
+    }
+    return null
+}
+
+function normalizeNanoGPTUsageMetric(limitValue: unknown, metricValue: any): NanoGPTUsageMetric | null {
+    const limit = toFiniteNumber(limitValue)
+    if (!metricValue && limit === null) return null
+
+    const used = toFiniteNumber(metricValue?.used) ?? 0
+    const remaining = metricValue?.remaining === null
+        ? null
+        : (toFiniteNumber(metricValue?.remaining) ?? (limit === null ? null : Math.max(limit - used, 0)))
+
+    const rawPercentUsed = toFiniteNumber(metricValue?.percentUsed)
+    const percentUsed = rawPercentUsed === null
+        ? (limit && limit > 0 ? (used / limit) * 100 : 0)
+        : (rawPercentUsed <= 1 ? rawPercentUsed * 100 : rawPercentUsed)
+
+    return {
+        limit,
+        used,
+        remaining,
+        percentUsed,
+        progress: Math.min(Math.max(percentUsed / 100, 0), 1),
+        resetAt: toFiniteNumber(metricValue?.resetAt),
+    }
 }
 
 export async function fetchNanoGPTUsage(apiKey: string): Promise<{usage: NanoGPTUsageInfo | null, error?: string}> {
@@ -209,10 +259,17 @@ export async function fetchNanoGPTUsage(apiKey: string): Promise<{usage: NanoGPT
             usage: {
                 active: data.active ?? false,
                 state: data.state ?? 'unknown',
-                limits: data.limits ?? { daily: 0, monthly: 0 },
-                daily: data.daily ?? { used: 0, remaining: 0, percentUsed: 0, resetAt: 0 },
-                monthly: data.monthly ?? { used: 0, remaining: 0, percentUsed: 0, resetAt: 0 },
+                provider: data.provider ?? 'unknown',
+                providerStatus: data.providerStatus ?? data.state ?? 'unknown',
+                providerStatusRaw: data.providerStatusRaw ?? data.providerStatus ?? data.state ?? 'unknown',
+                allowOverage: data.allowOverage ?? false,
+                cancelAt: data.cancelAt ?? null,
+                cancelAtPeriodEnd: data.cancelAtPeriodEnd ?? false,
+                graceUntil: data.graceUntil ?? null,
                 periodEnd: data.period?.currentPeriodEnd ?? null,
+                weeklyInputTokens: normalizeNanoGPTUsageMetric(data.limits?.weeklyInputTokens, data.weeklyInputTokens),
+                dailyInputTokens: normalizeNanoGPTUsageMetric(data.limits?.dailyInputTokens, data.dailyInputTokens),
+                dailyImages: normalizeNanoGPTUsageMetric(data.limits?.dailyImages, data.dailyImages),
             }
         }
     } catch (e) {

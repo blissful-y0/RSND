@@ -12,6 +12,7 @@ const COPILOT_API = 'https://api.individual.githubcopilot.com'
 const GITHUB_API = 'https://api.github.com'
 const DEFAULT_VS_CODE_VERSION = '1.111.0'
 const DEFAULT_CHAT_VERSION = '0.39.2'
+const COPILOT_PROXY_POLICY = 'always' as const
 
 function getVersions(): { vsCode: string, chat: string } {
     const db = getDatabase()
@@ -47,7 +48,8 @@ async function getTidToken(githubToken: string): Promise<string> {
             'Authorization': `token ${githubToken}`,
             'User-Agent': getUserAgent(),
             'Accept': 'application/json',
-        }
+        },
+        proxyPolicy: COPILOT_PROXY_POLICY,
     })
 
     // Fix #1: single text() call, sanitized error message
@@ -190,6 +192,7 @@ export async function requestCopilot(arg: RequestDataArgumentExtended): Promise<
                 customURL: endpoint,
                 key: tidToken,
                 extraHeaders: copilotHeaders,
+                proxyPolicy: COPILOT_PROXY_POLICY,
             }
 
             let result: requestDataResponse
@@ -269,6 +272,7 @@ export async function fetchCopilotModels(githubToken: string): Promise<{models: 
         const res = await fetchNative(`${COPILOT_API}/models`, {
             method: 'GET',
             headers,
+            proxyPolicy: COPILOT_PROXY_POLICY,
         })
 
         if (!res.ok) {
@@ -320,7 +324,8 @@ export async function fetchCopilotUsage(githubToken: string): Promise<{usage: Co
                 'Authorization': `token ${githubToken}`,
                 'User-Agent': getUserAgent(),
                 'Accept': 'application/json',
-            }
+            },
+            proxyPolicy: COPILOT_PROXY_POLICY,
         })
 
         if (!res.ok) {
