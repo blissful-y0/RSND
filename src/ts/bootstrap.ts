@@ -19,6 +19,7 @@ import { updateLorebooks } from "./characters";
 import { initMobileGesture } from "./hotkey";
 import { moduleUpdate } from "./process/modules";
 import { makeColdData } from "./process/coldstorage.svelte";
+import { removeUnusedCharacterAssets } from "./assetCleanup";
 import {
     forageStorage,
     saveDb,
@@ -214,6 +215,7 @@ function updateHeightMode() {
  */
 async function checkNewFormat(): Promise<void> {
     let db = getDatabase();
+    const expiredCharacters = []
 
     // Check data integrity
     db.characters = db.characters.map((v) => {
@@ -378,12 +380,16 @@ async function checkNewFormat(): Promise<void> {
         const trashTime = db.characters[i].trashTime;
         const targetTrashTime = trashTime ? trashTime + 1000 * 60 * 60 * 24 * 3 : 0;
         if (trashTime && targetTrashTime < Date.now()) {
+            expiredCharacters.push(db.characters[i]);
             db.characters.splice(i, 1);
             i--;
         }
     }
     setDatabase(db);
     checkCharOrder();
+    for (const expiredCharacter of expiredCharacters) {
+        await removeUnusedCharacterAssets(expiredCharacter, getDatabase())
+    }
 }
 
 /**

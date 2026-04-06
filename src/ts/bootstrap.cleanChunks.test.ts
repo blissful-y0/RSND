@@ -206,6 +206,8 @@ describe('loadData cleanChunks', () => {
         vi.clearAllMocks()
         dbHolder.reset()
         DBState.db = dbHolder.current
+        loadedStore.set(false)
+        selectedCharID.set(0)
         storageMocks.keys.mockResolvedValue(['assets/new-bot.png'])
         getUncleanablesMock.mockReturnValue([])
         Object.defineProperty(navigator, 'storage', {
@@ -223,5 +225,30 @@ describe('loadData cleanChunks', () => {
         await vi.advanceTimersByTimeAsync(5_000)
 
         expect(storageMocks.removeItem).not.toHaveBeenCalledWith('assets/new-bot.png')
+    })
+
+    test('removes assets for trashed characters that expire during boot migration', async () => {
+        dbHolder.current.characters = [
+            {
+                chaId: 'expired-char',
+                type: 'character',
+                name: 'Expired',
+                image: 'assets/expired.png',
+                chats: [],
+                chatPage: 0,
+                customscript: [],
+                globalLore: [],
+                viewScreen: 'none',
+                emotionImages: [],
+                trashTime: Date.now() - (1000 * 60 * 60 * 24 * 4),
+            },
+        ]
+
+        const { loadData } = await import('./bootstrap')
+
+        await loadData()
+        await vi.advanceTimersByTimeAsync(5_000)
+
+        expect(storageMocks.removeItem).toHaveBeenCalledWith('assets/expired.png')
     })
 })
