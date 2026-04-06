@@ -29,6 +29,7 @@ import {
     checkCharOrder
 } from "./globalApi.svelte";
 import { registerModelDynamic } from "./model/modellist";
+import { isNodeServer } from "./platform";
 
 const appWindow = null
 
@@ -401,6 +402,11 @@ async function cleanChunks() {
             continue
         }
         else if (asset.startsWith('assets/')) {
+            // NodeOnly assets live in shared server storage, so a stale client must
+            // never prune them during boot cleanup.
+            if (isNodeServer) {
+                continue
+            }
             const n = getBasename(asset)
             if(!uncleanable.has(n)) {
                 await forageStorage.removeItem(asset)
