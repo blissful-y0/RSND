@@ -69,6 +69,7 @@
     let submenu = $state(DBState.db.useLegacyGUI ? -1 : 0)
     let modelInfo = $derived(getModelInfo(DBState.db.aiModel))
     let subModelInfo = $derived(getModelInfo(DBState.db.subModel))
+    const dbAny = DBState.db as any
 
     let copilotModelSyncInFlight = false
     let nanogptModelSyncInFlight = false
@@ -275,7 +276,7 @@
         <span class="text-textcolor">Claude {language.apiKey}</span>
         <TextInput hideText={DBState.db.hideApiKey} marginBottom={true} size={"sm"} placeholder="..." bind:value={DBState.db.claudeAPIKey}/>
     {/if}
-    {#if modelInfo.provider === COPILOT_PROVIDER || subModelInfo.provider === COPILOT_PROVIDER}
+    {#if modelInfo.provider === LLMProvider.Copilot || subModelInfo.provider === LLMProvider.Copilot}
         <Accordion name="GitHub Copilot" styled>
             <span class="text-textcolor2 text-xs mb-2 block">GitHub Personal Access Token (copilot scope required)</span>
             {#each dbAny.copilot?.githubTokens ?? [] as token, i}
@@ -400,7 +401,7 @@
             {/if}
         </Accordion>
     {/if}
-    {#if modelInfo.provider === NANOGPT_PROVIDER || subModelInfo.provider === NANOGPT_PROVIDER}
+    {#if modelInfo.provider === LLMProvider.NanoGPT || subModelInfo.provider === LLMProvider.NanoGPT}
         <Accordion name="NanoGPT" styled>
             <span class="text-textcolor2 text-xs mb-2 block">NanoGPT API Key</span>
             {#each dbAny.nanogpt?.apiKeys ?? [] as key, i}
