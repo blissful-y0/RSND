@@ -1,9 +1,10 @@
 import { spawn } from 'node:child_process'
 import net from 'node:net'
+import { decideBackendStartup, getBackendPort } from './dev-nodeonly-lib.mjs'
 
 const pnpmBin = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm'
 const viteArgs = process.argv.slice(2)
-const backendPort = Number(process.env.PORT || 6001)
+const backendPort = getBackendPort(process.env)
 
 const children = []
 
@@ -59,8 +60,16 @@ function shutdown(code = 0) {
 process.on('SIGINT', () => shutdown(0))
 process.on('SIGTERM', () => shutdown(0))
 
-if (await isPortOpen(backendPort)) {
+const backendDecision = await decideBackendStartup({
+  port: backendPort,
+  isPortOpen,
+})
+
+if (backendDecision === 'reuse') {
   console.log(`[dev-nodeonly] backend already running on port ${backendPort}, skipping node server startup`)
+} else if (backendDecision === 'conflict') {
+  console.error(`[dev-nodeonly] port ${backendPort} is already in use by a different process; stop it or choose another PORT before running pnpm dev`)
+  process.exit(1)
 } else {
   start('node-server', ['runserver'])
 }
