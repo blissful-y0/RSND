@@ -3,7 +3,7 @@ name: risuai-nodeonly
 services:
   risuai:
     container_name: risuai-nodeonly
-    image: ${RISU_IMAGE:-ghcr.io/blissful-y0/risuai-nodeonly:latest}
+    image: ${RISU_IMAGE:-ghcr.io/blissful-y0/rsnd-risuai-nodeonly:latest}
     restart: always
     init: true
     expose:

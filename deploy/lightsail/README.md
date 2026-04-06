@@ -4,7 +4,7 @@
 
 ## 구조
 
-- GitHub Actions가 `main` 푸시마다 `ghcr.io/<owner>/risuai-nodeonly:latest`를 갱신합니다.
+- GitHub Actions가 `main` 푸시마다 `ghcr.io/<owner>/rsnd-risuai-nodeonly:latest`를 갱신합니다.
 - 빌드가 끝나면 Actions가 `deploy.<domain>/v1/update`로 요청을 보냅니다.
 - 그 요청은 Cloudflare Tunnel을 통해 `watchtower:8080`으로 전달됩니다.
 - Watchtower는 `risuai-nodeonly` 컨테이너만 새 이미지로 갱신합니다.
