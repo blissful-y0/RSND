@@ -10,7 +10,7 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository_owner }}/risuai-nodeonly
+  IMAGE_NAME: ${{ github.repository_owner }}/rsnd-risuai-nodeonly
   DOCKER_PLATFORMS: ${{ vars.DOCKER_PLATFORMS || 'linux/amd64' }}
 
 concurrency:
@@ -190,7 +190,7 @@ jobs:
       - name: Delete old package versions
         uses: actions/delete-package-versions@v5
         with:
-          package-name: risuai-nodeonly
+          package-name: rsnd-risuai-nodeonly
           package-type: container
           min-versions-to-keep: 5
           delete-only-untagged-versions: true
