@@ -4,6 +4,7 @@ ARG NODE_IMAGE=node:20-slim
 ARG PNPM_VERSION=9.12.2
 
 FROM ${NODE_IMAGE} AS base
+ARG PNPM_VERSION
 WORKDIR /app
 ENV PNPM_HOME="/pnpm"
 ENV PATH="$PNPM_HOME:$PATH"
@@ -37,9 +38,6 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY --from=builder /app/server ./server
 COPY --from=builder /app/dist ./dist
 
-RUN mkdir -p /app/save && chown -R node:node /app
-
-USER node
 EXPOSE 6001
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 CMD node -e "const http=require('http');const req=http.get({host:'127.0.0.1',port:process.env.PORT||6001,path:'/'},(res)=>process.exit(res.statusCode < 500 ? 0 : 1));req.on('error',()=>process.exit(1));req.setTimeout(4000,()=>{req.destroy();process.exit(1);});"

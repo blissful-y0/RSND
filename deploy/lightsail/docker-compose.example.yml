@@ -34,7 +34,7 @@ services:
       - "127.0.0.1:8080:8080"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      - /home/ec2-user/.docker/config.json:/config.json:ro
+      - ${DOCKER_CONFIG_FILE:-/home/ec2-user/.docker/config.json}:/config.json:ro
     environment:
       WATCHTOWER_HTTP_API_TOKEN: ${WATCHTOWER_HTTP_API_TOKEN}
       WATCHTOWER_NO_STARTUP_MESSAGE: "true"

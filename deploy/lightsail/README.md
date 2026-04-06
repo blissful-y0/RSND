@@ -18,6 +18,7 @@
    - `deploy.<domain>`이 예전 별도 tunnel에 이미 묶여 있으면 `docker-compose.separate-deploy-tunnel.example.yml`
 3. `.env.example`을 복사해 `.env`를 만들고 값을 채웁니다.
    - `RISU_IMAGE`는 현재 운영할 GHCR 이미지를 가리킵니다.
+   - `DOCKER_CONFIG_FILE`은 GHCR pull 인증이 들어 있는 호스트의 `config.json` 경로입니다.
    - `CF_DEPLOY_TUNNEL_TOKEN`은 별도 deploy tunnel을 쓸 때만 필요합니다.
 4. 적용 후 서버에서 아래 명령을 실행합니다.
 
@@ -67,6 +68,8 @@ docker-compose up -d
   - Watchtower의 `WATCHTOWER_HTTP_API_TOKEN`
 - `CF_ACCESS_CLIENT_ID`
 - `CF_ACCESS_CLIENT_SECRET`
+- `DISCORD_DEPLOY_WEBHOOK_URL`
+  - 선택 사항, deploy webhook 완료/실패 알림용
 
 마지막 두 값은 Zero Trust를 붙일 때만 필요합니다.
 
