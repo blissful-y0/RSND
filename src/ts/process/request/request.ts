@@ -1,7 +1,7 @@
 import { Ollama } from 'ollama/dist/browser.mjs';
 import { language } from "../../../lang";
 import { globalFetch } from "../../globalApi.svelte";
-import { getModelInfo, LLMFlags, LLMFormat, type LLMModel } from "../../model/modellist";
+import { getModelInfo, LLMFlags, LLMFormat, LLMProvider, type LLMModel } from "../../model/modellist";
 import { risuChatParser, risuEscape, risuUnescape } from "../../parser/parser.svelte";
 import { pluginProcess, pluginV2 } from "../../plugins/plugins.svelte";
 import { getCurrentCharacter, getCurrentChat, getDatabase, type character } from "../../storage/database.svelte";
@@ -17,6 +17,8 @@ import { applyChatTemplate } from "../templates/chatTemplate";
 import { runTransformers } from "../transformers";
 import { runTrigger } from "../triggers";
 import { requestClaude } from './anthropic';
+import { requestCopilot } from './copilot';
+import { requestNanoGPT } from './nanogpt';
 import { requestGoogleCloudVertex } from './google';
 import { requestOpenAI, requestOpenAILegacyInstruct, requestOpenAIResponseAPI } from "./openAI/requests";
 import { applyParameters, type ModelModeExtended } from './shared';
@@ -63,6 +65,7 @@ export interface RequestDataArgumentExtended extends requestDataArgument{
     key?:string
     additionalOutput?:string
     saveSignatures?:boolean
+    extraHeaders?:Record<string, string>
 }
 
 export type requestDataResponse = {
@@ -368,6 +371,14 @@ export async function requestChatDataMain(arg:requestDataArgument, model:ModelMo
     const format = targ.modelInfo.format
 
     targ.formated = reformater(targ.formated, targ.modelInfo)
+
+    if (targ.modelInfo.provider === LLMProvider.Copilot) {
+        return requestCopilot(targ)
+    }
+
+    if (targ.modelInfo.provider === LLMProvider.NanoGPT) {
+        return requestNanoGPT(targ)
+    }
 
     switch(format){
         case LLMFormat.OpenAICompatible:

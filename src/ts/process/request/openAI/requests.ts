@@ -530,6 +530,9 @@ export async function requestOpenAI(arg:RequestDataArgumentExtended):Promise<req
     if(risuIdentify){
         headers["X-Proxy-Risu"] = 'RisuAI'
     }
+    if(arg.extraHeaders){
+        headers = { ...headers, ...arg.extraHeaders }
+    }
     if(arg.multiGen){
         // Check if tools are enabled - multiGen with tools is not supported
         if(arg.tools && arg.tools.length > 0){
@@ -690,6 +693,7 @@ async function requestHTTPOpenAI(replacerURL:string,body:any, headers:Record<str
         abortSignal: arg.abortSignal,
         chatId: arg.chatId,
         interceptor: 'openai_basic',
+        plainFetchDeforce: !!arg.extraHeaders,
         ...getLocalNetworkRequestOptions(replacerURL),
     })
 
@@ -1114,13 +1118,16 @@ export async function requestOpenAIResponseAPI(arg:RequestDataArgumentExtended):
         }
     }
 
-    const headers = {
+    let headers = {
         "Authorization": "Bearer " + (arg.key ?? db.openAIKey),
         "Content-Type": "application/json"
     }
 
     if(risuIdentify){
         headers["X-Proxy-Risu"] = 'RisuAI'
+    }
+    if(arg.extraHeaders){
+        headers = { ...headers, ...arg.extraHeaders }
     }
 
     if(arg.previewBody){
@@ -1144,6 +1151,7 @@ export async function requestOpenAIResponseAPI(arg:RequestDataArgumentExtended):
         chatId: arg.chatId,
         abortSignal: arg.abortSignal,
         interceptor: 'openai_response_api',
+        plainFetchDeforce: !!arg.extraHeaders,
         ...getLocalNetworkRequestOptions(requestURL),
     });
 
