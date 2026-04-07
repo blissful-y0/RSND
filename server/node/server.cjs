@@ -17,85 +17,15 @@ const { kvGet, kvSet, kvDel, kvList,
         db: sqliteDb } = require('./db.cjs');
 const { applyPatch } = require('fast-json-patch');
 const { decodeRisuSave, encodeRisuSaveLegacy, calculateHash, normalizeJSON } = require('./utils.cjs');
-
-// Configuration flags for patch-based sync
-const enablePatchSync = true;
-
-// In-memory database cache for patch-based sync
-let dbCache = {};
-let saveTimers = {};
-const SAVE_INTERVAL = 5000;
-
-// ETag for database.bin
-let dbEtag = null;
-
-function computeBufferEtag(buffer) {
-    return nodeCrypto.createHash('md5').update(buffer).digest('hex');
-}
-
-function computeDatabaseEtagFromObject(databaseObject) {
-    return computeBufferEtag(Buffer.from(encodeRisuSaveLegacy(databaseObject)));
-}
-
-let storageOperationQueue = Promise.resolve();
-function queueStorageOperation(operation) {
-    const operationRun = storageOperationQueue.then(operation, operation);
-    storageOperationQueue = operationRun.catch(() => {});
-    return operationRun;
-}
-
-const DB_HEX_KEY = Buffer.from('database/database.bin', 'utf-8').toString('hex');
-
-// ─── Server-side database backup ─────────────────────────────────────────────
-const BACKUP_BUDGET_BYTES = 500 * 1024 * 1024; // 500 MB
-const BACKUP_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
-let lastBackupTime = null;
-
-function createBackupAndRotate() {
-    const now = Date.now();
-    if (lastBackupTime && now - lastBackupTime < BACKUP_INTERVAL_MS) {
-        return;
-    }
-    lastBackupTime = now;
-
-    const backupKey = `database/dbbackup-${(now / 100).toFixed()}.bin`;
-    kvCopyValue('database/database.bin', backupKey);
-
-    const backupKeys = kvList('database/dbbackup-')
-        .sort((a, b) => {
-            const aTs = parseInt(a.slice(18, -4));
-            const bTs = parseInt(b.slice(18, -4));
-            return bTs - aTs;
-        });
-
-    const dbSize = kvSize('database/database.bin') || 1;
-    const maxBackups = Math.min(20, Math.max(3, Math.floor(BACKUP_BUDGET_BYTES / dbSize)));
-
-    while (backupKeys.length > maxBackups) {
-        kvDel(backupKeys.pop());
-    }
-}
-
-function flushPendingDb() {
-    if (saveTimers[DB_HEX_KEY]) {
-        clearTimeout(saveTimers[DB_HEX_KEY]);
-        delete saveTimers[DB_HEX_KEY];
-        if (dbCache[DB_HEX_KEY]) {
-            const data = Buffer.from(encodeRisuSaveLegacy(dbCache[DB_HEX_KEY]));
-            kvSet('database/database.bin', data);
-            createBackupAndRotate();
-        }
-    }
-}
-
-function invalidateDbCache() {
-    delete dbCache[DB_HEX_KEY];
-    if (saveTimers[DB_HEX_KEY]) {
-        clearTimeout(saveTimers[DB_HEX_KEY]);
-        delete saveTimers[DB_HEX_KEY];
-    }
-    dbEtag = null;
-}
+const { createDbState } = require('./dbState.cjs');
+const dbState = createDbState({
+    kvSet,
+    kvCopyValue,
+    kvList,
+    kvSize,
+    kvDel,
+    encodeRisuSaveLegacy,
+});
 
 function shouldCompress(req, res) {
     // Proxy/hub-proxy: pass through external responses without compression.
@@ -1192,7 +1122,7 @@ app.get('/', async (req, res, next) => {
         const mainIndex = await fs.readFile(path.join(process.cwd(), 'dist', 'index.html'))
         const root = htmlparser.parse(mainIndex)
         const head = root.querySelector('head')
-        head.innerHTML = `<script>globalThis.__NODE__ = true; globalThis.__PATCH_SYNC__ = ${enablePatchSync}</script>` + head.innerHTML
+        head.innerHTML = `<script>globalThis.__NODE__ = true; globalThis.__PATCH_SYNC__ = ${dbState.enablePatchSync}</script>` + head.innerHTML
         
         res.send(root.toString())
     } catch (error) {
@@ -1927,7 +1857,7 @@ app.get('/api/read', async (req, res, next) => {
         const key = Buffer.from(filePath, 'hex').toString('utf-8');
         // Flush pending patches before reading database.bin
         if (key === 'database/database.bin') {
-            flushPendingDb();
+            dbState.flushPendingDb();
         }
         let value = null;
         if (key.startsWith('inlay/')) {
@@ -1944,13 +1874,13 @@ app.get('/api/read', async (req, res, next) => {
             res.setHeader('Content-Type', 'application/octet-stream');
             // Return ETag for database.bin reads, support 304 Not Modified
             if (key === 'database/database.bin') {
-                if (!dbEtag) {
-                    dbEtag = computeBufferEtag(value);
+                if (!dbState.getDbEtag()) {
+                    dbState.setDbEtag(dbState.computeBufferEtag(value));
                 }
-                if (req.headers['if-none-match'] === dbEtag) {
+                if (req.headers['if-none-match'] === dbState.getDbEtag()) {
                     return res.status(304).end();
                 }
-                res.setHeader('x-db-etag', dbEtag);
+                res.setHeader('x-db-etag', dbState.getDbEtag());
             }
             res.send(value);
         }
@@ -2030,16 +1960,16 @@ app.post('/api/write', async (req, res, next) => {
         return;
     }
     try {
-        await queueStorageOperation(async () => {
+        await dbState.queueStorageOperation(async () => {
             const key = Buffer.from(filePath, 'hex').toString('utf-8');
 
             // ETag conflict detection for database.bin
             if (key === 'database/database.bin') {
                 const ifMatch = req.headers['x-if-match'];
-                if (ifMatch && dbEtag && ifMatch !== dbEtag) {
+                if (ifMatch && dbState.getDbEtag() && ifMatch !== dbState.getDbEtag()) {
                     res.status(409).send({
                         error: 'ETag mismatch - concurrent modification detected',
-                        currentEtag: dbEtag
+                        currentEtag: dbState.getDbEtag()
                     });
                     return;
                 }
@@ -2074,14 +2004,14 @@ app.post('/api/write', async (req, res, next) => {
 
             // Update ETag, backup, and invalidate cache after database.bin write
             if (key === 'database/database.bin') {
-                invalidateDbCache();
-                dbEtag = computeBufferEtag(fileContent);
-                createBackupAndRotate();
+                dbState.invalidateDbCache();
+                dbState.setDbEtag(dbState.computeBufferEtag(fileContent));
+                dbState.createBackupAndRotate();
             }
 
             res.send({
                 success: true,
-                etag: key === 'database/database.bin' ? dbEtag : undefined
+                etag: key === 'database/database.bin' ? dbState.getDbEtag() : undefined
             });
         });
     } catch (error) {
@@ -2092,11 +2022,11 @@ app.post('/api/write', async (req, res, next) => {
 app.post('/api/db/flush', sessionAuthMiddleware, async (req, res, next) => {
     if (!checkActiveSession(req, res)) return;
     try {
-        await queueStorageOperation(async () => {
-            flushPendingDb();
+        await dbState.queueStorageOperation(async () => {
+            dbState.flushPendingDb();
             res.send({
                 success: true,
-                etag: dbEtag ?? undefined
+                etag: dbState.getDbEtag() ?? undefined
             });
         });
     } catch (error) {
@@ -2106,7 +2036,7 @@ app.post('/api/db/flush', sessionAuthMiddleware, async (req, res, next) => {
 
 // ─── Patch sync endpoint ──────────────────────────────────────────────────────
 app.post('/api/patch', async (req, res, next) => {
-    if (!enablePatchSync) {
+    if (!dbState.enablePatchSync) {
         res.status(404).send({ error: 'Patch sync is not enabled' });
         return;
     }
@@ -2128,27 +2058,27 @@ app.post('/api/patch', async (req, res, next) => {
     }
 
     try {
-        await queueStorageOperation(async () => {
+        await dbState.queueStorageOperation(async () => {
             const decodedKey = Buffer.from(filePath, 'hex').toString('utf-8');
 
             // Load database into memory if not already cached
-            if (!dbCache[filePath]) {
+            if (!dbState.hasCacheEntry(filePath)) {
                 const fileContent = kvGet(decodedKey);
                 if (fileContent) {
-                    dbCache[filePath] = normalizeJSON(await decodeRisuSave(fileContent));
+                    dbState.setCacheEntry(filePath, normalizeJSON(await decodeRisuSave(fileContent)));
                 } else {
-                    dbCache[filePath] = {};
+                    dbState.setCacheEntry(filePath, {});
                 }
             }
 
-            const serverHash = calculateHash(dbCache[filePath]).toString(16);
+            const serverHash = calculateHash(dbState.getCacheEntry(filePath)).toString(16);
 
             if (expectedHash !== serverHash) {
                 console.log(`[Patch] Hash mismatch for ${decodedKey}: expected=${expectedHash}, server=${serverHash}`);
                 let currentEtag = undefined;
                 if (decodedKey === 'database/database.bin') {
-                    currentEtag = computeDatabaseEtagFromObject(dbCache[filePath]);
-                    dbEtag = currentEtag;
+                    currentEtag = dbState.computeDatabaseEtagFromObject(dbState.getCacheEntry(filePath));
+                    dbState.setDbEtag(currentEtag);
                 }
                 res.status(409).send({
                     error: 'Hash mismatch - data out of sync',
@@ -2158,44 +2088,44 @@ app.post('/api/patch', async (req, res, next) => {
             }
 
             // Apply patch to in-memory database (clone first to prevent partial mutation on failure)
-            const snapshot = JSON.parse(JSON.stringify(dbCache[filePath]));
+            const snapshot = JSON.parse(JSON.stringify(dbState.getCacheEntry(filePath)));
             let result;
             try {
                 result = applyPatch(snapshot, patch, true);
             } catch (patchErr) {
                 // Invalidate corrupted cache entry to force reload on next request
-                delete dbCache[filePath];
+                dbState.deleteCacheEntry(filePath);
                 throw patchErr;
             }
-            dbCache[filePath] = snapshot;
+            dbState.setCacheEntry(filePath, snapshot);
 
             // Schedule save to KV (debounced)
-            if (saveTimers[filePath]) {
-                clearTimeout(saveTimers[filePath]);
+            if (dbState.hasSaveTimer(filePath)) {
+                dbState.clearSaveTimer(filePath);
             }
-            saveTimers[filePath] = setTimeout(() => {
+            dbState.setSaveTimer(filePath, setTimeout(() => {
                 try {
-                    const data = Buffer.from(encodeRisuSaveLegacy(dbCache[filePath]));
+                    const data = Buffer.from(encodeRisuSaveLegacy(dbState.getCacheEntry(filePath)));
                     kvSet(decodedKey, data);
                     if (decodedKey === 'database/database.bin') {
-                        createBackupAndRotate();
+                        dbState.createBackupAndRotate();
                     }
                 } catch (error) {
                     console.error(`[Patch] Error saving ${decodedKey}:`, error);
                 } finally {
-                    delete saveTimers[filePath];
+                    dbState.clearSaveTimer(filePath);
                 }
-            }, SAVE_INTERVAL);
+            }, dbState.SAVE_INTERVAL));
 
             // Update ETag after successful patch
             if (decodedKey === 'database/database.bin') {
-                dbEtag = computeDatabaseEtagFromObject(dbCache[filePath]);
+                dbState.setDbEtag(dbState.computeDatabaseEtagFromObject(dbState.getCacheEntry(filePath)));
             }
 
             res.send({
                 success: true,
                 appliedOperations: result.length,
-                etag: decodedKey === 'database/database.bin' ? dbEtag : undefined,
+                etag: decodedKey === 'database/database.bin' ? dbState.getDbEtag() : undefined,
             });
         });
     } catch (error) {
@@ -2303,7 +2233,7 @@ app.get('/api/backup/export', async (req, res, next) => {
     if(!await checkAuth(req, res)){ return; }
     try {
         // Flush any pending patches to ensure export includes latest data
-        flushPendingDb();
+        dbState.flushPendingDb();
         const inlayFiles = await listInlayFiles();
         const inlayEntries = await Promise.all(inlayFiles.map(async (entry) => {
             const stat = await fs.stat(entry.filePath);
@@ -2668,7 +2598,7 @@ app.post('/api/backup/import', async (req, res, next) => {
         }
 
         // Invalidate db cache after import to prevent stale patches
-        invalidateDbCache();
+        dbState.invalidateDbCache();
 
         try {
             checkpointWal('TRUNCATE');
@@ -2730,10 +2660,10 @@ function importHexFilesFromDir(dirPath) {
     if (hexFiles.length === 0) return { imported: 0 };
     if (!hasDatabase) throw new Error('Save folder does not contain database/database.bin');
 
-    flushPendingDb();
-    createBackupAndRotate();
+    dbState.flushPendingDb();
+    dbState.createBackupAndRotate();
     clearExistingData();
-    invalidateDbCache();
+    dbState.invalidateDbCache();
 
     const insert = sqliteDb.prepare(
         `INSERT OR REPLACE INTO kv (key, value, updated_at) VALUES (?, ?, ?)`
@@ -2758,10 +2688,10 @@ function importHexEntries(entries) {
     const hasDb = entries.some(e => e.key === 'database/database.bin');
     if (!hasDb) throw new Error('Data does not contain database/database.bin');
 
-    flushPendingDb();
-    createBackupAndRotate();
+    dbState.flushPendingDb();
+    dbState.createBackupAndRotate();
     clearExistingData();
-    invalidateDbCache();
+    dbState.invalidateDbCache();
 
     const insert = sqliteDb.prepare(
         `INSERT OR REPLACE INTO kv (key, value, updated_at) VALUES (?, ?, ?)`
@@ -3072,7 +3002,7 @@ async function startServer() {
 for (const sig of ['SIGTERM', 'SIGINT']) {
     process.on(sig, () => {
         console.log(`[Server] Received ${sig}, flushing pending data...`);
-        try { flushPendingDb(); } catch (e) { console.error('[Server] Flush error:', e); }
+        try { dbState.flushPendingDb(); } catch (e) { console.error('[Server] Flush error:', e); }
         try { checkpointWal('TRUNCATE'); } catch { /* non-fatal */ }
         process.exit(0);
     });
