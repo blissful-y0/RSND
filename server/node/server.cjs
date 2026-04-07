@@ -586,12 +586,7 @@ async function checkDiskSpace(requiredBytes) {
     }
 }
 
-// ── Active writer session (removed) ──────────────────────────────────────────
-// The server-side single-writer lock has been removed. It relied on in-memory
-// activeSessionId which resets on container restart, causing the sole client to
-// receive 423 and permanently stop saving (gotChannel = true). ETag-based
-// conflict detection (409 + rebase) already handles concurrent writes safely.
-// BroadcastChannel still protects against same-browser multi-tab conflicts.
+// Note: server-side single-writer lock removed in v0.7.0.4 (see git history)
 
 // --- Proxy Stream Job constants ---
 const PROXY_STREAM_DEFAULT_TIMEOUT_MS = 600000;

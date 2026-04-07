@@ -412,7 +412,6 @@ export class NodeStorage{
             xhr.open('POST', '/api/backup/import')
             xhr.setRequestHeader('content-type', 'application/x-risu-backup')
             xhr.setRequestHeader('risu-auth', authHeader)
-            xhr.setRequestHeader('x-session-id', NodeStorage.sessionId)
 
             xhr.upload.onprogress = (event) => {
                 if (event.lengthComputable) {
@@ -477,7 +476,6 @@ export class NodeStorage{
             xhr.open('POST', '/api/migrate/save-folder/upload')
             xhr.setRequestHeader('content-type', 'application/zip')
             xhr.setRequestHeader('risu-auth', authHeader)
-            xhr.setRequestHeader('x-session-id', NodeStorage.sessionId)
 
             xhr.upload.onprogress = (event) => {
                 if (event.lengthComputable) {
