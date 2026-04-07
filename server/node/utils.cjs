@@ -452,6 +452,9 @@ function normalizeJSON(value) {
     const result = {};
     for (const key in value) {
         if (Object.prototype.hasOwnProperty.call(value, key)) {
+            if (key === 'reloadKeys') {
+                continue;
+            }
             const propValue = value[key];
             if (propValue !== undefined) {
                 const normalized = normalizeJSON(propValue);
