@@ -9,7 +9,6 @@ const htmlparser = require('node-html-parser');
 const { existsSync, mkdirSync, readFileSync, writeFileSync, readdirSync, unlinkSync } = require('fs');
 const fs = require('fs/promises')
 const nodeCrypto = require('crypto')
-const rateLimit = require('express-rate-limit')
 const { WebSocketServer } = require('ws')
 const sharp = require('sharp')
 const { kvGet, kvSet, kvDel, kvList,
@@ -19,6 +18,7 @@ const { applyPatch } = require('fast-json-patch');
 const { decodeRisuSave, encodeRisuSaveLegacy, calculateHash, normalizeJSON } = require('./utils.cjs');
 const { createDbState } = require('./dbState.cjs');
 const { createInlay } = require('./inlay.cjs');
+const { createAuth } = require('./auth.cjs');
 const dbState = createDbState({
     kvSet,
     kvCopyValue,
@@ -67,8 +67,6 @@ const {pipeline} = require('stream/promises')
 const sslPath = path.join(process.cwd(), 'server/node/ssl/certificate');
 const hubURL = 'https://sv.risuai.xyz';
 
-let password = ''
-
 // Ensure /save/ exists for password file and migration source
 const savePath = path.join(process.cwd(), "save")
 if(!existsSync(savePath)){
@@ -76,9 +74,6 @@ if(!existsSync(savePath)){
 }
 
 const passwordPath = path.join(process.cwd(), 'save', '__password')
-if(existsSync(passwordPath)){
-    password = readFileSync(passwordPath, 'utf-8')
-}
 
 // ── NodeOnly: server-side JWT (HMAC-SHA256) ─────────────────────────────────
 // Upstream uses client-side ECDSA JWT via crypto.subtle, which requires
@@ -87,13 +82,6 @@ if(existsSync(passwordPath)){
 // If upstream changes its auth flow, this section needs manual sync.
 // Related: createServerJwt(), checkAuth(), /api/login, /api/token/refresh
 const jwtSecretPath = path.join(savePath, '__jwt_secret')
-let jwtSecret
-if (existsSync(jwtSecretPath)) {
-    jwtSecret = readFileSync(jwtSecretPath, 'utf-8').trim()
-} else {
-    jwtSecret = nodeCrypto.randomBytes(64).toString('hex')
-    writeFileSync(jwtSecretPath, jwtSecret, 'utf-8')
-}
 
 const authCodePath = path.join(process.cwd(), 'save', '__authcode')
 const inlayDir = path.join(savePath, 'inlays')
@@ -117,6 +105,7 @@ const currentVersion = (() => {
 })();
 
 const inlay = createInlay({ inlayDir, kvGet, kvDel, kvList });
+const auth = createAuth({ passwordPath, jwtSecretPath });
 const {
     ASSET_EXT_MIME,
     isSafeInlayId,
@@ -135,6 +124,12 @@ const {
     listInlayFiles,
     migrateInlaysToFilesystem,
 } = inlay;
+const {
+    isHex,
+    sessionAuthMiddleware,
+    checkActiveSession,
+    checkAuth,
+} = auth;
 
 async function fetchLatestRelease() {
     if (UPDATE_CHECK_DISABLED) return null;
@@ -153,27 +148,6 @@ async function fetchLatestRelease() {
     }
 }
 
-// ── Session store for direct asset URL auth (F-0) ──────────────────────────
-// <img src="/api/asset/..."> cannot send custom headers, so we use a session
-// cookie issued after initial JWT auth. Single-user environment: Map is fine.
-const sessions = new Map() // token → expiresAt (ms)
-
-function parseSessionCookie(req) {
-    const cookieHeader = req.headers.cookie || ''
-    for (const part of cookieHeader.split(';')) {
-        const eq = part.indexOf('=')
-        if (eq === -1) continue
-        if (part.slice(0, eq).trim() === 'risu-session') return part.slice(eq + 1).trim()
-    }
-    return null
-}
-
-function sessionAuthMiddleware(req, res, next) {
-    const token = parseSessionCookie(req)
-    if (token && (sessions.get(token) ?? 0) > Date.now()) return next()
-    res.status(401).end()
-}
-
 async function checkDiskSpace(requiredBytes) {
     try {
         const saveDir = path.join(process.cwd(), 'save');
@@ -184,21 +158,6 @@ async function checkDiskSpace(requiredBytes) {
         // statfs unavailable on this platform — skip check
         return { ok: true, available: -1 };
     }
-}
-
-// ── Active writer session (single-writer lock) ────────────────────────────────
-// Mirrors the BroadcastChannel-based tab lock on the server side so that the
-// same protection extends across devices. The last client to call /api/session
-// becomes the active writer; older sessions receive 423 on write attempts.
-let activeSessionId = null // string | null
-
-function checkActiveSession(req, res) {
-    const clientSessionId = req.headers['x-session-id']
-    if (!clientSessionId) return true  // client without session support
-    if (!activeSessionId) return true  // no session registered yet
-    if (clientSessionId === activeSessionId) return true
-    res.status(423).json({ error: 'Session deactivated' })
-    return false
 }
 
 // --- Proxy Stream Job constants ---
@@ -214,38 +173,6 @@ const PROXY_STREAM_MAX_PENDING_EVENTS = 512;
 const PROXY_STREAM_MAX_PENDING_BYTES = 2 * 1024 * 1024;
 const PROXY_STREAM_MAX_BODY_BASE64_BYTES = 8 * 1024 * 1024;
 const proxyStreamJobs = new Map();
-
-const loginRouteLimiter = rateLimit({
-    windowMs: 30 * 1000,
-    max: 10,
-    standardHeaders: true,
-    legacyHeaders: false,
-    message: { error: 'Too many attempts. Please wait and try again later.' },
-    validate: { xForwardedForHeader: false }
-});
-
-function isHex(str) {
-    return hexRegex.test(str.toUpperCase().trim()) || str === '__password';
-}
-
-async function hashJSON(json){
-    const hash = nodeCrypto.createHash('sha256');
-    hash.update(JSON.stringify(json));
-    return hash.digest('hex');
-}
-
-// NodeOnly: server-issued JWT (see jwt_secret comment above)
-function createServerJwt() {
-    const now = Math.floor(Date.now() / 1000)
-    const header = { alg: 'HS256', typ: 'JWT' }
-    const payload = { iat: now, exp: now + 5 * 60 }
-    const headerB64 = Buffer.from(JSON.stringify(header)).toString('base64url')
-    const payloadB64 = Buffer.from(JSON.stringify(payload)).toString('base64url')
-    const sig = nodeCrypto.createHmac('sha256', jwtSecret)
-        .update(`${headerB64}.${payloadB64}`)
-        .digest('base64url')
-    return `${headerB64}.${payloadB64}.${sig}`
-}
 
 function getRequestTimeoutMs(timeoutHeader) {
     const raw = Array.isArray(timeoutHeader) ? timeoutHeader[0] : timeoutHeader;
@@ -801,91 +728,6 @@ app.get('/', async (req, res, next) => {
     }
 })
 
-async function checkAuth(req, res, returnOnlyStatus = false, {allowExpired = false} = {}){
-    try {
-        const authHeader = req.headers['risu-auth'];
-
-        if(!authHeader){
-            console.log('No auth header')
-            if(returnOnlyStatus){
-                return false;
-            }
-            res.status(400).send({
-                error:'No auth header'
-            });
-            return false
-        }
-
-
-        //jwt token
-        const [
-            jsonHeaderB64,
-            jsonPayloadB64,
-            signatureB64,
-        ] = authHeader.split('.');
-
-        //alg, typ
-        const jsonHeader = JSON.parse(Buffer.from(jsonHeaderB64, 'base64url').toString('utf-8'));
-
-        //iat, exp
-        const jsonPayload = JSON.parse(Buffer.from(jsonPayloadB64, 'base64url').toString('utf-8'));
-
-        
-        //check expiration
-        if(!allowExpired){
-            const now = Math.floor(Date.now() / 1000);
-            if(jsonPayload.exp < now){
-                console.log('Token expired')
-                if(returnOnlyStatus){
-                    return false;
-                }
-                res.status(400).send({
-                    error:'Token Expired'
-                });
-                return false
-            }
-        }
-
-        //check signature (HMAC-SHA256)
-        if(jsonHeader.alg !== "HS256"){
-            console.log('Unsupported algorithm')
-            if(returnOnlyStatus){
-                return false;
-            }
-            res.status(400).send({
-                error:'Unsupported Algorithm'
-            });
-            return false
-        }
-
-        const expectedSig = nodeCrypto.createHmac('sha256', jwtSecret)
-            .update(`${jsonHeaderB64}.${jsonPayloadB64}`)
-            .digest()
-        const actualSig = Buffer.from(signatureB64, 'base64url')
-
-        if(expectedSig.length !== actualSig.length || !nodeCrypto.timingSafeEqual(expectedSig, actualSig)){
-            console.log('Invalid signature')
-            if(returnOnlyStatus){
-                return false;
-            }
-            res.status(400).send({
-                error:'Invalid Signature'
-            });
-            return false
-        }
-        return true
-    } catch (error) {
-        console.log(error)
-        if(returnOnlyStatus){
-            return false;
-        }
-        res.status(500).send({
-            error:'Internal Server Error'
-        });
-        return false
-    }
-}
-
 const reverseProxyFunc = async (req, res, next) => {
     if(!await checkAuth(req, res)){
         return;
@@ -1294,77 +1136,7 @@ app.delete('/proxy-stream-jobs/:jobId', async (req, res) => {
     res.send({ success: true });
 });
 
-// app.get('/api/password', async(req, res)=> {
-//     if(password === ''){
-//         res.send({status: 'unset'})
-//     }
-//     else if(req.body.password && req.body.password.trim() === password.trim()){
-//         res.send({status:'correct'})
-//     }
-//     else{
-//         res.send({status:'incorrect'})
-//     }
-// })
-
-app.get('/api/test_auth', async(req, res) => {
-
-    if(!password){
-        res.send({status: 'unset'})
-    }
-    else if(!await checkAuth(req, res, true)){
-        // JWT missing/invalid – fall back to session cookie (survives page refresh)
-        const sessionToken = parseSessionCookie(req)
-        if (sessionToken && (sessions.get(sessionToken) ?? 0) > Date.now()) {
-            res.send({status: 'success', token: createServerJwt()})
-        } else {
-            res.send({status: 'incorrect'})
-        }
-    }
-    else{
-        res.send({status: 'success', token: createServerJwt()})
-    }
-})
-
-app.post('/api/login', loginRouteLimiter, async (req, res) => {
-    if(password === ''){
-        res.status(400).send({error: 'Password not set'})
-        return;
-    }
-    if(req.body.password && req.body.password.trim() === password.trim()){
-        res.send({status:'success', token: createServerJwt()})
-    }
-    else{
-        res.status(400).send({error: 'Password incorrect'})
-    }
-})
-
-// NodeOnly: token refresh endpoint (pairs with server-side JWT)
-app.post('/api/token/refresh', async (req, res) => {
-    if (!await checkAuth(req, res, false, {allowExpired: true})) return
-    res.json({ token: createServerJwt() })
-})
-
-// ── Session cookie issuance (F-0) ──────────────────────────────────────────
-// Called once after JWT auth succeeds. Issues a long-lived cookie so that
-// <img src="/api/asset/..."> requests can be authenticated without JS.
-app.post('/api/session', async (req, res) => {
-    if (!await checkAuth(req, res)) return
-    const clientSessionId = req.headers['x-session-id']
-    if (clientSessionId) {
-        activeSessionId = clientSessionId
-        console.log('[Session] Active writer session updated')
-    }
-    const token = nodeCrypto.randomBytes(32).toString('hex')
-    const expiresAt = Date.now() + 7 * 24 * 60 * 60 * 1000
-    sessions.set(token, expiresAt)
-    // Prune stale sessions (bounded by single-user usage, safe to do inline)
-    for (const [t, exp] of sessions) {
-        if (exp < Date.now()) sessions.delete(t)
-    }
-    const maxAge = 7 * 24 * 60 * 60 // seconds
-    res.setHeader('Set-Cookie', `risu-session=${token}; HttpOnly; SameSite=Strict; Max-Age=${maxAge}; Path=/`)
-    res.json({ ok: true })
-})
+auth.mountRoutes(app);
 
 // ── Direct asset serving (F-1) ─────────────────────────────────────────────
 // Serves KV-stored assets as proper HTTP responses with long-term caching.
@@ -1484,28 +1256,6 @@ app.get('/api/asset/:hexKey', sessionAuthMiddleware, async (req, res) => {
     } catch (error) {
         console.error('[Asset] Failed to serve asset:', error);
         res.status(500).end()
-    }
-})
-
-app.post('/api/crypto', async (req, res) => {
-    try {
-        const hash = nodeCrypto.createHash('sha256')
-        hash.update(Buffer.from(req.body.data, 'utf-8'))
-        res.send(hash.digest('hex'))
-    } catch (error) {
-        res.status(500).send({ error: 'Crypto operation failed' });
-    }
-})
-
-
-app.post('/api/set_password', async (req, res) => {
-    if(password === ''){
-        password = req.body.password
-        writeFileSync(passwordPath, password, 'utf-8')
-        res.send({status: 'success'})
-    }
-    else{
-        res.status(400).send("already set")
     }
 })
 
