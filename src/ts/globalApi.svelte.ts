@@ -340,12 +340,14 @@ export async function saveDb() {
         return toSave
     }
 
-    async function flushServerDbKeepalive() {
+    function flushServerDbKeepalive() {
         try {
+            const authHeader = forageStorage.getCachedAuthForKeepalive()
             fetch('/api/db/flush', {
                 method: 'POST',
                 keepalive: true,
-                credentials: 'same-origin'
+                credentials: 'same-origin',
+                headers: authHeader ? { 'risu-auth': authHeader } : undefined
             }).catch(() => {})
         } catch {
             // ignore best-effort flush failures

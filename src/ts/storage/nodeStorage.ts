@@ -37,6 +37,14 @@ export class NodeStorage{
         return token
     }
 
+    getCachedAuthForKeepalive() {
+        const now = Date.now()
+        if (this.cachedJwt && this.cachedJwt.expiresAt - now > 30_000) {
+            return this.cachedJwt.token
+        }
+        return ''
+    }
+
     // Called once after JWT auth is confirmed. Issues a session cookie so that
     // <img src="/api/asset/..."> can be served without JS-injected headers.
     private async initSession() {
