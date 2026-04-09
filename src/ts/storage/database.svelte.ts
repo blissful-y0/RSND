@@ -1923,6 +1923,7 @@ export interface ChatStub {
     name: string
     lastDate?: number
     folderId?: string
+    modules?: string[]
     _stub: true
 }
 
