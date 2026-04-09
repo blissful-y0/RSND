@@ -721,7 +721,20 @@ async function checkDiskSpace(requiredBytes) {
     }
 }
 
-// Note: server-side single-writer lock removed in v0.7.0.4 (see git history)
+// ── Active writer session (single-writer lock) ────────────────────────────────
+// Mirrors the BroadcastChannel-based tab lock on the server side so that the
+// same protection extends across devices. The last client to call /api/session
+// becomes the active writer; older sessions receive 423 on write attempts.
+let activeSessionId = null // string | null
+
+function checkActiveSession(req, res) {
+    const clientSessionId = req.headers['x-session-id']
+    if (!clientSessionId) return true
+    if (!activeSessionId) return true
+    if (clientSessionId === activeSessionId) return true
+    res.status(423).json({ error: 'Session deactivated' })
+    return false
+}
 
 // --- Proxy Stream Job constants ---
 const PROXY_STREAM_DEFAULT_TIMEOUT_MS = 600000;
@@ -2085,6 +2098,11 @@ app.post('/api/token/refresh', async (req, res) => {
 // <img src="/api/asset/..."> requests can be authenticated without JS.
 app.post('/api/session', async (req, res) => {
     if (!await checkAuth(req, res)) return
+    const clientSessionId = req.headers['x-session-id']
+    if (clientSessionId) {
+        activeSessionId = clientSessionId
+        console.log('[Session] Active writer session updated')
+    }
     const token = nodeCrypto.randomBytes(32).toString('hex')
     const expiresAt = Date.now() + 7 * 24 * 60 * 60 * 1000
     sessions.set(token, expiresAt)
@@ -2358,6 +2376,7 @@ app.post('/api/write', async (req, res, next) => {
     if(!await checkAuth(req, res)){
         return;
     }
+    if (!checkActiveSession(req, res)) return;
     const filePath = req.headers['file-path'];
     const fileContent = req.body;
     if (!filePath || !fileContent) {
@@ -2448,6 +2467,7 @@ app.post('/api/write', async (req, res, next) => {
 });
 
 app.post('/api/db/flush', sessionOrJwtAuthMiddleware, async (req, res, next) => {
+    if (!checkActiveSession(req, res)) return;
     try {
         await queueStorageOperation(async () => {
             await flushPendingDb();
@@ -2470,6 +2490,7 @@ app.post('/api/patch', async (req, res, next) => {
     if(!await checkAuth(req, res)){
         return;
     }
+    if (!checkActiveSession(req, res)) return;
     const filePath = req.headers['file-path'];
     const patch = req.body.patch;
     const expectedHash = req.body.expectedHash;
@@ -2646,6 +2667,7 @@ app.post('/api/assets/bulk-read', async (req, res, next) => {
 
 app.post('/api/assets/bulk-write', async (req, res, next) => {
     if(!await checkAuth(req, res)){ return; }
+    if (!checkActiveSession(req, res)) return;
     try {
         const entries = req.body; // {key: string, value: base64}[]
         if(!Array.isArray(entries)){
@@ -2773,6 +2795,7 @@ app.get('/api/backup/export', async (req, res, next) => {
 // Pre-flight check: auth + size + disk space before client starts uploading
 app.post('/api/backup/import/prepare', async (req, res, next) => {
     if (!await checkAuth(req, res)) { return; }
+    if (!checkActiveSession(req, res)) return;
     try {
         if (importInProgress) {
             res.status(409).json({ error: 'Another import is already in progress' });
@@ -2805,6 +2828,7 @@ app.post('/api/backup/import/prepare', async (req, res, next) => {
 
 app.post('/api/backup/import', async (req, res, next) => {
     if(!await checkAuth(req, res)){ return; }
+    if (!checkActiveSession(req, res)) return;
 
     if (importInProgress) {
         res.status(409).json({ error: 'Another import is already in progress' });
@@ -3322,6 +3346,7 @@ async function importHexEntries(entries) {
 
 app.post('/api/migrate/save-folder/scan', async (req, res, next) => {
     if (!await checkAuth(req, res)) return;
+    if (!checkActiveSession(req, res)) return;
     try {
         const folderPath = req.body?.path || savePath;
         const resolved = path.resolve(folderPath);
@@ -3344,6 +3369,7 @@ app.post('/api/migrate/save-folder/scan', async (req, res, next) => {
 
 app.post('/api/migrate/save-folder/execute', async (req, res, next) => {
     if (!await checkAuth(req, res)) return;
+    if (!checkActiveSession(req, res)) return;
     if (importInProgress) {
         res.status(409).json({ error: 'Another import is already in progress' });
         return;
@@ -3373,6 +3399,7 @@ app.post('/api/migrate/save-folder/execute', async (req, res, next) => {
 
 app.post('/api/migrate/save-folder/upload', async (req, res, next) => {
     if (!await checkAuth(req, res)) return;
+    if (!checkActiveSession(req, res)) return;
     if (importInProgress) {
         res.status(409).json({ error: 'Another import is already in progress' });
         return;
@@ -3436,6 +3463,7 @@ app.post('/api/migrate/save-folder/upload', async (req, res, next) => {
 
 app.post('/api/migrate/save-folder/cleanup/scan', async (req, res, next) => {
     if (!await checkAuth(req, res)) return;
+    if (!checkActiveSession(req, res)) return;
     try {
         if (!existsSync(migrationMarkerPath)) {
             res.status(400).json({ error: 'Migration has not been completed yet' });
@@ -3450,6 +3478,7 @@ app.post('/api/migrate/save-folder/cleanup/scan', async (req, res, next) => {
 
 app.post('/api/migrate/save-folder/cleanup/execute', async (req, res, next) => {
     if (!await checkAuth(req, res)) return;
+    if (!checkActiveSession(req, res)) return;
     try {
         if (!existsSync(migrationMarkerPath)) {
             res.status(400).json({ error: 'Migration has not been completed yet' });
@@ -3477,6 +3506,7 @@ app.post('/api/migrate/save-folder/cleanup/execute', async (req, res, next) => {
 const COMPRESS_IMAGE_EXTS = new Set(['png', 'jpg', 'jpeg', 'gif', 'bmp']);
 
 app.post('/api/inlays/compress', sessionAuthMiddleware, async (req, res) => {
+    if (!checkActiveSession(req, res)) return;
     const quality = typeof req.body?.quality === 'number' ? req.body.quality : 85;
 
     res.writeHead(200, {
