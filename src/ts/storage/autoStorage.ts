@@ -38,6 +38,10 @@ export class AutoStorage{
         return this.realStorage.createAuth()
     }
 
+    getCachedAuthForKeepalive(): string {
+        return this.realStorage?.getCachedAuthForKeepalive() ?? ''
+    }
+
     async exportBackup() {
         await this.Init()
         return this.realStorage.exportBackup()

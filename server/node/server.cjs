@@ -18,6 +18,7 @@ const { kvGet, kvSet, kvDel, kvList,
         db: sqliteDb } = require('./db.cjs');
 const { applyPatch } = require('fast-json-patch');
 const { decodeRisuSave, encodeRisuSaveLegacy, calculateHash, normalizeJSON } = require('./utils.cjs');
+const { parseSessionCookie, hasValidSession, createSessionOrJwtAuthMiddleware } = require('./sessionAuth.cjs');
 
 // Node.js version check
 const [nodeMajor] = process.version.slice(1).split('.').map(Number);
@@ -684,19 +685,8 @@ async function fetchLatestRelease() {
 // cookie issued after initial JWT auth. Single-user environment: Map is fine.
 const sessions = new Map() // token → expiresAt (ms)
 
-function parseSessionCookie(req) {
-    const cookieHeader = req.headers.cookie || ''
-    for (const part of cookieHeader.split(';')) {
-        const eq = part.indexOf('=')
-        if (eq === -1) continue
-        if (part.slice(0, eq).trim() === 'risu-session') return part.slice(eq + 1).trim()
-    }
-    return null
-}
-
 function sessionAuthMiddleware(req, res, next) {
-    const token = parseSessionCookie(req)
-    if (token && (sessions.get(token) ?? 0) > Date.now()) return next()
+    if (hasValidSession(req, sessions)) return next()
     res.status(401).end()
 }
 
@@ -1627,6 +1617,11 @@ async function checkAuth(req, res, returnOnlyStatus = false, {allowExpired = fal
     }
 }
 
+const sessionOrJwtAuthMiddleware = createSessionOrJwtAuthMiddleware({
+    sessions,
+    checkAuth,
+})
+
 const reverseProxyFunc = async (req, res, next) => {
     if(!await checkAuth(req, res)){
         return;
@@ -2452,7 +2447,7 @@ app.post('/api/write', async (req, res, next) => {
     }
 });
 
-app.post('/api/db/flush', sessionAuthMiddleware, async (req, res, next) => {
+app.post('/api/db/flush', sessionOrJwtAuthMiddleware, async (req, res, next) => {
     try {
         await queueStorageOperation(async () => {
             await flushPendingDb();
