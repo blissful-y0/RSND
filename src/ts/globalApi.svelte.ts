@@ -265,6 +265,7 @@ export function setPatchSyncBaseline(data: Database | null) {
 export async function saveDb() {
     let changed = false
     let gotChannel = false
+    let suppressTracking = false
     const sessionID = v4()
     let saveInFlight: Promise<void> | null = null
     const knownChatIdsByCharacter = new Map<string, Set<string>>(
@@ -385,6 +386,7 @@ export async function saveDb() {
         })
 
         function saveTimeoutExecute() {
+            if (suppressTracking) return
             if (saveTimeout) {
                 clearTimeout(saveTimeout);
             }
@@ -405,8 +407,79 @@ export async function saveDb() {
             })
             void flushServerDbKeepalive()
         }
+        async function pullIfChanged() {
+            if (gotChannel) return
+            if (saveInFlight) return
+            const currentEtag = forageStorage.getDbEtag()
+            if (!currentEtag) return
+
+            try {
+                const result = await forageStorage.getItemIfChanged('database/database.bin', currentEtag)
+                if (!result) return
+
+                const serverDb = await decodeRisuSave(result.data as unknown as Uint8Array) as Database
+                forageStorage.setDbEtag(result.etag)
+
+                const pendingChanges = safeStructuredClone(changeTracker) as toSaveType
+                const hasPending = hasTrackedChanges(pendingChanges)
+
+                if (hasPending) {
+                    const localDb = safeStructuredClone(getDatabase()) as Database
+                    const mergedDb = mergeServerAndLocal(serverDb, localDb, pendingChanges)
+
+                    suppressTracking = true
+                    try {
+                        setDatabase(mergedDb)
+                        await tick()
+                    } finally {
+                        suppressTracking = false
+                    }
+                    resetKnownChatsFromDb(getDatabase())
+
+                    const mergedBaseline = safeStructuredClone(getDatabase()) as Database
+                    encoder = new RisuSaveEncoder()
+                    await encoder.init(mergedBaseline, { compression: false })
+                    if (supportsPatchSync) {
+                        patcher = new RisuSavePatcher()
+                        await patcher.init(mergedBaseline)
+                    }
+
+                    changed = true
+                } else {
+                    suppressTracking = true
+                    try {
+                        setDatabase(serverDb)
+                        await tick()
+                    } finally {
+                        suppressTracking = false
+                    }
+                    resetKnownChatsFromDb(getDatabase())
+
+                    changeTracker.root = false
+                    changeTracker.botPreset = false
+                    changeTracker.modules = false
+                    changeTracker.loadouts = false
+                    changeTracker.plugins = false
+                    changeTracker.pluginCustomStorage = false
+                    changeTracker.character = []
+                    changeTracker.chat = []
+
+                    const newBaseline = safeStructuredClone(getDatabase()) as Database
+                    encoder = new RisuSaveEncoder()
+                    await encoder.init(newBaseline, { compression: false })
+                    if (supportsPatchSync) {
+                        patcher = new RisuSavePatcher()
+                        await patcher.init(newBaseline)
+                    }
+                }
+            } catch (err) {
+                console.warn('[Save] pullIfChanged failed:', err)
+            }
+        }
+
         document.addEventListener('visibilitychange', () => {
             if (document.visibilityState === 'hidden') flushImmediate();
+            else if (document.visibilityState === 'visible') void pullIfChanged();
         });
         window.addEventListener('pagehide', flushImmediate);
 
@@ -423,6 +496,7 @@ export async function saveDb() {
                 didInitRootEffect = true
                 return
             }
+            if (suppressTracking) return
             changeTracker.root = true
             saveTimeoutExecute()
         })
@@ -433,6 +507,7 @@ export async function saveDb() {
                 didInitBotPresetEffect = true
                 return
             }
+            if (suppressTracking) return
             changeTracker.botPreset = true
             saveTimeoutExecute()
         })
@@ -445,6 +520,7 @@ export async function saveDb() {
                 didInitModulesEffect = true
                 return
             }
+            if (suppressTracking) return
             changeTracker.modules = true
             saveTimeoutExecute()
         })
@@ -454,6 +530,7 @@ export async function saveDb() {
                 didInitLoadoutsEffect = true
                 return
             }
+            if (suppressTracking) return
             changeTracker.loadouts = true
             saveTimeoutExecute()
         })
@@ -463,6 +540,7 @@ export async function saveDb() {
                 didInitPluginsEffect = true
                 return
             }
+            if (suppressTracking) return
             changeTracker.plugins = true
             saveTimeoutExecute()
         })
@@ -472,6 +550,7 @@ export async function saveDb() {
                 didInitPluginStorageEffect = true
                 return
             }
+            if (suppressTracking) return
             changeTracker.pluginCustomStorage = true
             saveTimeoutExecute()
         })
@@ -480,9 +559,11 @@ export async function saveDb() {
             $state.snapshot(currentCharacterIds)
 
             const currentCharacterIdSet = new Set<string>(currentCharacterIds)
-            for (const previousCharacterId of knownCharacterIds) {
-                if (!currentCharacterIdSet.has(previousCharacterId)) {
-                    changeTracker.character = [previousCharacterId, ...changeTracker.character.filter((v) => v !== previousCharacterId)]
+            if (!suppressTracking) {
+                for (const previousCharacterId of knownCharacterIds) {
+                    if (!currentCharacterIdSet.has(previousCharacterId)) {
+                        changeTracker.character = [previousCharacterId, ...changeTracker.character.filter((v) => v !== previousCharacterId)]
+                    }
                 }
             }
             knownCharacterIds = currentCharacterIdSet
@@ -501,8 +582,10 @@ export async function saveDb() {
                     lastDate: c.lastDate,
                     folderId: c.folderId,
                 })))
-                if (changeTracker.character[0] !== DBState.db.characters[selIdState]?.chaId) {
-                    changeTracker.character.unshift(DBState.db.characters[selIdState]?.chaId)
+                if (!suppressTracking) {
+                    if (changeTracker.character[0] !== DBState.db.characters[selIdState]?.chaId) {
+                        changeTracker.character.unshift(DBState.db.characters[selIdState]?.chaId)
+                    }
                 }
             }
             if (!didInitGeneralEffect) {
@@ -536,6 +619,9 @@ export async function saveDb() {
             }
 
             if (isHydrating(activeChaId, activeChatId)) {
+                return
+            }
+            if (suppressTracking) {
                 return
             }
 
@@ -619,14 +705,21 @@ export async function saveDb() {
         }
     }
 
-    async function rebaseTrackedLocalChangesOnLatestServerDb(conflictEtag: string | null, db: Database, toSave: toSaveType) {
-        forageStorage.setDbEtag(conflictEtag ?? null)
-        const latestData = await forageStorage.getItem('database/database.bin') as unknown as Uint8Array
-        if (latestData && latestData.length > 0) {
-            const latestDb = await decodeRisuSave(latestData) as Database
-            const mergedDb = safeStructuredClone(latestDb) as Database
-            const localDb = safeStructuredClone(db) as Database
+    function resetKnownChatsFromDb(db: Database) {
+        knownChatIdsByCharacter.clear()
+        for (const char of db.characters ?? []) {
+            if (!char?.chaId) continue
+            knownChatIdsByCharacter.set(
+                char.chaId,
+                new Set((char.chats ?? []).map(chat => chat?.id).filter(Boolean))
+            )
+        }
+    }
 
+    function mergeServerAndLocal(serverDb: Database, localDb: Database, localChanges: toSaveType): Database {
+        const mergedDb = safeStructuredClone(serverDb) as Database
+
+        if (localChanges.root) {
             for (const key in localDb) {
                 if (
                     key !== 'characters' && key !== 'botPresets' && key !== 'modules' &&
@@ -635,43 +728,71 @@ export async function saveDb() {
                     mergedDb[key] = safeStructuredClone(localDb[key])
                 }
             }
+        }
 
-            if (toSave.botPreset) {
-                mergedDb.botPresets = safeStructuredClone(localDb.botPresets)
-                mergedDb.botPresetsId = localDb.botPresetsId
-            }
-            if (toSave.modules) {
-                mergedDb.modules = safeStructuredClone(localDb.modules)
-            }
+        if (localChanges.botPreset) {
+            mergedDb.botPresets = safeStructuredClone(localDb.botPresets)
+            mergedDb.botPresetsId = localDb.botPresetsId
+        }
+        if (localChanges.modules) {
+            mergedDb.modules = safeStructuredClone(localDb.modules)
+        }
+        if (localChanges.loadouts) {
+            mergedDb.loadouts = safeStructuredClone(localDb.loadouts)
+        }
+        if (localChanges.plugins) {
+            mergedDb.plugins = safeStructuredClone(localDb.plugins)
+        }
+        if (localChanges.pluginCustomStorage) {
+            mergedDb.pluginCustomStorage = safeStructuredClone(localDb.pluginCustomStorage)
+        }
 
-            const trackedCharIds = new Set<string>(toSave.character.filter(Boolean))
-            for (const trackedChat of toSave.chat) {
-                if (trackedChat?.[0]) {
-                    trackedCharIds.add(trackedChat[0])
+        const trackedCharIds = new Set<string>(localChanges.character.filter(Boolean))
+        for (const trackedChat of localChanges.chat) {
+            if (trackedChat?.[0]) {
+                trackedCharIds.add(trackedChat[0])
+            }
+        }
+        const mergedCharacters = Array.isArray(mergedDb.characters) ? mergedDb.characters : []
+        const localCharacters = Array.isArray(localDb.characters) ? localDb.characters : []
+
+        for (const charId of trackedCharIds) {
+            const localChar = localCharacters.find((char) => char?.chaId === charId)
+            const mergedIndex = mergedCharacters.findIndex((char) => char?.chaId === charId)
+            if (localChar) {
+                const clonedLocalChar = safeStructuredClone(localChar)
+                if (mergedIndex >= 0) {
+                    mergedCharacters[mergedIndex] = clonedLocalChar
+                }
+                else {
+                    mergedCharacters.push(clonedLocalChar)
                 }
             }
-            const mergedCharacters = Array.isArray(mergedDb.characters) ? mergedDb.characters : []
-            const localCharacters = Array.isArray(localDb.characters) ? localDb.characters : []
-
-            for (const charId of trackedCharIds) {
-                const localChar = localCharacters.find((char) => char?.chaId === charId)
-                const mergedIndex = mergedCharacters.findIndex((char) => char?.chaId === charId)
-                if (localChar) {
-                    const clonedLocalChar = safeStructuredClone(localChar)
-                    if (mergedIndex >= 0) {
-                        mergedCharacters[mergedIndex] = clonedLocalChar
-                    }
-                    else {
-                        mergedCharacters.push(clonedLocalChar)
-                    }
-                }
-                else if (mergedIndex >= 0) {
-                    mergedCharacters.splice(mergedIndex, 1)
-                }
+            else if (mergedIndex >= 0) {
+                mergedCharacters.splice(mergedIndex, 1)
             }
-            mergedDb.characters = mergedCharacters
+        }
+        mergedDb.characters = mergedCharacters
+
+        return mergedDb
+    }
+
+    async function rebaseTrackedLocalChangesOnLatestServerDb(conflictEtag: string | null, db: Database, toSave: toSaveType) {
+        forageStorage.setDbEtag(conflictEtag ?? null)
+        const latestData = await forageStorage.getItem('database/database.bin') as unknown as Uint8Array
+        if (latestData && latestData.length > 0) {
+            const latestDb = await decodeRisuSave(latestData) as Database
+            const localDb = safeStructuredClone(db) as Database
+            const mergedDb = mergeServerAndLocal(latestDb, localDb, toSave)
             const mergedBaseline = safeStructuredClone(mergedDb) as Database
-            setDatabase(mergedDb)
+            suppressTracking = true
+            try {
+                setDatabase(mergedDb)
+                await tick()
+            } finally {
+                suppressTracking = false
+            }
+            resetKnownChatsFromDb(getDatabase())
 
             encoder = new RisuSaveEncoder()
             await encoder.init(getDatabase(), {

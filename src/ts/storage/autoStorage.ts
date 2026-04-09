@@ -12,6 +12,9 @@ export class AutoStorage{
     async getItem(key:string):Promise<Buffer> {
         return await this.realStorage.getItem(key)
     }
+    async getItemIfChanged(key: string, knownEtag: string): Promise<{ data: Buffer; etag: string } | null> {
+        return await this.realStorage.getItemIfChanged(key, knownEtag)
+    }
     async keys(prefix: string = ''):Promise<string[]>{
         await this.Init()
         return await this.realStorage.keys(prefix)

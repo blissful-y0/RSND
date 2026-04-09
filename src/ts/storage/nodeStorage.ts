@@ -224,6 +224,19 @@ export class NodeStorage{
 
         return data
     }
+    async getItemIfChanged(key: string, knownEtag: string): Promise<{ data: Buffer; etag: string } | null> {
+        const headers: Record<string, string> = {
+            'file-path': Buffer.from(key, 'utf-8').toString('hex'),
+            'if-none-match': knownEtag
+        }
+        const da = await this.authFetch('/api/read', { method: "GET", headers })
+        if (da.status === 304) return null
+        if (da.status < 200 || da.status >= 300) throw "getItemIfChanged Error"
+        const etag = da.headers.get('x-db-etag')
+        if (etag) this._lastDbEtag = etag
+        const data = Buffer.from(await da.arrayBuffer())
+        return data.length === 0 ? null : { data, etag: etag ?? knownEtag }
+    }
     async keys(prefix: string = ''):Promise<string[]>{
         const headers: Record<string, string> = {
         }
