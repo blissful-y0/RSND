@@ -7,6 +7,28 @@ import type { RequestDataArgumentExtended, requestDataResponse } from './request
 import { requestClaude } from './anthropic'
 import { requestOpenAI, requestOpenAIResponseAPI } from './openAI/requests'
 
+// Resolve the active conversation from Risuai's global state. Imported lazily
+// (via a dynamic import shim) so the test environment can mock database.svelte
+// without also needing stores.svelte / svelte/store wired up.
+async function resolveActiveChatKey(): Promise<string | null> {
+    try {
+        const [{ getCurrentChat }, { selectedCharID }, { get: readStore }] = await Promise.all([
+            import('src/ts/storage/database.svelte'),
+            import('src/ts/stores.svelte'),
+            import('svelte/store'),
+        ])
+        const charId = readStore(selectedCharID)
+        const chat = getCurrentChat()
+        if (typeof charId === 'number' && charId >= 0 && chat) {
+            const ident = chat.id ?? chat.name ?? 'unnamed'
+            return `${charId}:${ident}`
+        }
+    } catch {
+        // happens in tests / SSR-like contexts; fall back to arg.chatId
+    }
+    return null
+}
+
 // ── Constants ────────────────────────────────────────────────────────
 
 const GITHUB_API = 'https://api.github.com'
@@ -291,7 +313,12 @@ function detectAdaptiveEffort(arg: RequestDataArgumentExtended): boolean {
     return (db as any).thinkingType !== 'off'
 }
 
-function chatKeyOf(arg: RequestDataArgumentExtended): string {
+async function chatKeyOf(arg: RequestDataArgumentExtended): Promise<string> {
+    // Risuai's `arg.chatId` is a per-generation UUID (v4 minted each send), not
+    // a conversation identifier — so it can't key sessions. Resolve the active
+    // chat from the DB/store layer first; fall back only when unavailable.
+    const active = await resolveActiveChatKey()
+    if (active) return active
     return arg.chatId ?? 'default'
 }
 
@@ -301,7 +328,7 @@ async function buildContext(
     arg: RequestDataArgumentExtended,
 ): Promise<TargetContext> {
     const initiator = detectInitiator(arg)
-    const chatKey = chatKeyOf(arg)
+    const chatKey = await chatKeyOf(arg)
     const chatSession = getChatSessionId(target.id, chatKey)
 
     // Agent calls get a brand-new ephemeral session; the chat session becomes

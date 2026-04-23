@@ -34,6 +34,15 @@ vi.mock('src/ts/globalApi.svelte', () => ({
 
 vi.mock('src/ts/storage/database.svelte', () => ({
     getDatabase: mocks.getDatabase,
+    getCurrentChat: () => undefined,
+}))
+
+vi.mock('src/ts/stores.svelte', () => ({
+    selectedCharID: { subscribe: () => () => {} },
+}))
+
+vi.mock('svelte/store', () => ({
+    get: () => -1,
 }))
 
 vi.mock('src/ts/model/modellist', () => ({
