@@ -90,6 +90,7 @@ export default defineConfig(({command, mode}) => {
     resolve:{
       alias:{
         'src':'/src',
+        '$lib':'/src/lib',
       }
     },
     worker: {
