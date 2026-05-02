@@ -1,5 +1,5 @@
 import { language } from "src/lang"
-import { alertError } from "src/ts/alert";
+import { notifyError } from "src/ts/alert";
 import { getDatabase } from "src/ts/storage/database.svelte"
 import { LLMFlags, LLMFormat } from "src/ts/model/modellist"
 import { getDeepSeekV4ThinkingParams, isDeepSeekV4ModelId } from "src/ts/model/deepseek"
@@ -29,7 +29,7 @@ import { applyChatTemplate } from "../../templates/chatTemplate"
 import { supportsInlayImage } from "../../files/inlays"
 import { callTool, decodeToolCall, encodeToolCall } from "../../mcp/mcp"
 import type { RequestDataArgumentExtended, requestDataResponse, StreamResponseChunk } from '../request'
-import { applyParameters, getReasoningEffortParameterValue, setObjectValue } from '../shared'
+import { applyAdditionalParameters, applyParameters, getAdditionalParameters, getReasoningEffortParameterValue, setObjectValue } from '../shared'
 
 import type { Contents, OpenAIChatExtra, OpenAIChatFull, ResponseInputItem, ResponseItem, ResponseOutputItem, ToolCall } from './types'
 
@@ -572,70 +572,7 @@ export async function requestOpenAI(arg:RequestDataArgumentExtended):Promise<req
         body.n = db.genTime
     }
     if(aiModel === 'reverse_proxy' || aiModel.startsWith('xcustom:::')){
-        let additionalParams = aiModel === 'reverse_proxy' ? db.additionalParams : []
-
-        if(aiModel.startsWith('xcustom:::')){
-            const found = db.customModels.find(m => m.id === aiModel)
-            const params = found?.params
-            if(params){
-                const lines = params.split('\n')
-                for(const line of lines){
-                    const split = line.split('=')
-                    if(split.length >= 2){
-                        additionalParams.push([split[0], split.slice(1).join('=')])
-                    }
-                }
-            }
-        }
-
-        for(let i=0;i<additionalParams.length;i++){
-            let key = additionalParams[i][0]
-            let value = additionalParams[i][1]
-
-            if(!key || !value){
-                continue
-            }
-
-            if(value === '{{none}}'){
-                if(key.startsWith('header::')){
-                    key = key.replace('header::', '')
-                    delete headers[key]
-                }
-                else{
-                    delete body[key]
-                }
-                continue
-            }
-
-            if(key.startsWith('header::')){
-                key = key.replace('header::', '')
-                headers[key] = value
-            }
-            else if(value.startsWith('json::')){
-                value = value.replace('json::', '')
-                try {
-                    body[key] = JSON.parse(value)
-                } catch (error) {}
-            }
-            else if((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))){
-                body = setObjectValue(body, key, value.slice(1, -1))
-            }
-            else if(value === 'true' || value === 'false'){
-                body = setObjectValue(body, key, value === 'true')
-            }
-            else if(value === 'null'){
-                body = setObjectValue(body, key, null)
-            }
-            else{
-                const num = Number(value)
-                if(isNaN(num)){
-                    body = setObjectValue(body, key, value)
-                }
-                else{
-                    body = setObjectValue(body, key, num)
-                }
-            }
-        }
+        body = applyAdditionalParameters(body, headers, getAdditionalParameters(aiModel))
     }
 
     if(arg.useStreaming){
@@ -880,7 +817,7 @@ async function requestHTTPOpenAI(replacerURL:string,body:any, headers:Record<str
                 const result = (db.simplifiedToolUse ? '' : (processTextResponse(dat) ?? '') + '\n\n') + callCode
                         
                 if(resRec.type === 'fail') {
-                    alertError(`Failed to fetch model response after tool execution`)
+                    notifyError(`Failed to fetch model response after tool execution`)
                     return {
                         type: 'success',
                         result: result
@@ -1654,7 +1591,7 @@ function wrapToolStream(
                         } while (attempt <= db.requestRetrys) // Retry up to db.requestRetrys times
                         
                         if(errorFlag){
-                            alertError(`Failed to fetch model response after tool execution`)
+                            notifyError(`Failed to fetch model response after tool execution`)
                             return controller.close()
                         }
                         

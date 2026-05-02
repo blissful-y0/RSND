@@ -16,6 +16,10 @@ const sharp = require('sharp')
 const { kvGet, kvSet, kvDel, kvList,
         kvDelPrefix, kvListWithSizes, kvSize, kvGetUpdatedAt, kvCopyValue, clearEntities, checkpointWal,
         db: sqliteDb } = require('./db.cjs');
+const {
+    addLogBatch, queryLogs, clearLogs, countLogs,
+    logger, installProcessHandlers, expressErrorMiddleware,
+} = require('./logs.cjs');
 const { applyPatch } = require('fast-json-patch');
 const { decodeRisuSave, encodeRisuSaveLegacy, calculateHash, normalizeJSON } = require('./utils.cjs');
 const { parseSessionCookie, hasValidSession, createSessionOrJwtAuthMiddleware } = require('./sessionAuth.cjs');
@@ -23,10 +27,13 @@ const { spawn, execSync } = require('child_process');
 const os = require('os');
 const { Readable, Transform } = require('stream');
 
+// Install process-level error handlers before any other init so early crashes get logged.
+installProcessHandlers();
+
 // Node.js version check
 const [nodeMajor] = process.version.slice(1).split('.').map(Number);
 if (nodeMajor < 24) {
-    console.warn(`[Server] Node.js ${process.version} is below the recommended version (v24.x). Consider upgrading for best compatibility.`);
+    logger.warn(`[Server] Node.js ${process.version} is below the recommended version (v24.x). Consider upgrading for best compatibility.`);
 }
 
 // Configuration flags for patch-based sync
@@ -59,6 +66,40 @@ function queueStorageOperation(operation) {
 }
 
 const DB_HEX_KEY = Buffer.from('database/database.bin', 'utf-8').toString('hex');
+
+// ─── Persist failure tracking (Stage 1 visibility) ───────────────────────────
+// Debounced persist runs in setTimeout, so failures cannot be returned in the
+// triggering response. Record the latest failure here and surface it on the
+// next /api/patch response. Cleared on next successful persist.
+let lastPersistFailure = null;
+
+function recordPersistFailure(error, source) {
+    const message = String(error?.message || error || 'unknown error');
+    const attemptedSize = typeof error?.attemptedSize === 'number' ? error.attemptedSize : null;
+    // Preserve timestamp when the failure is identical to the last one — every
+    // debounce cycle re-records the same failure, and clients dedupe by ts.
+    // Without this guard a fresh ts every 5s would re-fire the toast.
+    if (lastPersistFailure
+        && lastPersistFailure.source === source
+        && lastPersistFailure.message === message
+        && lastPersistFailure.attemptedSize === attemptedSize) {
+        return;
+    }
+    lastPersistFailure = {
+        timestamp: Date.now(),
+        message,
+        attemptedSize,
+        source,
+    };
+}
+
+function clearPersistFailure() {
+    lastPersistFailure = null;
+}
+
+function currentPersistWarning() {
+    return lastPersistFailure;
+}
 
 // ─── Server-side database backup ─────────────────────────────────────────────
 const BACKUP_BUDGET_BYTES = 500 * 1024 * 1024; // 500 MB
@@ -150,9 +191,9 @@ async function decodeDatabaseWithPersistentChatIds(raw, options = {}) {
     const coldRestoreResult = restoreColdStorageCharactersInDb(dbObj);
     if (coldRestoreResult.restored > 0 || coldRestoreResult.failed > 0) needsPersist = true;
     if (coldRestoreResult.failed > 0) {
-        console.error(`[ColdStorage] ${coldRestoreResult.failed} character(s) could not be restored and were converted to safe blank characters. Cold storage KV data is preserved.`);
+        logger.error(`[ColdStorage] ${coldRestoreResult.failed} character(s) could not be restored and were converted to safe blank characters. Cold storage KV data is preserved.`);
         for (const name of coldRestoreResult.failedNames) {
-            console.error(`[ColdStorage]   - "${name}"`);
+            logger.error(`[ColdStorage]   - "${name}"`);
         }
     }
 
@@ -289,7 +330,16 @@ async function persistDbCacheWithChats(filePath, decodedKey) {
     await ensureChatStore();
     const fullDb = reassembleFullDb(strippedDb);
     const data = Buffer.from(encodeRisuSaveLegacy(fullDb));
-    kvSet(decodedKey, data);
+    try {
+        kvSet(decodedKey, data);
+    } catch (err) {
+        // Tag with BLOB size so the visibility layer can surface it to the user.
+        // The dominant failure mode (better-sqlite3 INT_MAX) is size-driven.
+        if (err && typeof err === 'object') {
+            try { err.attemptedSize = data.length; } catch {}
+        }
+        throw err;
+    }
 }
 
 function shouldCompress(req, res) {
@@ -368,6 +418,16 @@ if (existsSync(jwtSecretPath)) {
 } else {
     jwtSecret = nodeCrypto.randomBytes(64).toString('hex')
     writeFileSync(jwtSecretPath, jwtSecret, 'utf-8')
+}
+
+// ── Instance ID for anonymous usage analytics ────────────────────────────────
+const instanceIdPath = path.join(savePath, '__instance_id')
+let instanceId
+if (existsSync(instanceIdPath)) {
+    instanceId = readFileSync(instanceIdPath, 'utf-8').trim()
+} else {
+    instanceId = nodeCrypto.randomUUID()
+    writeFileSync(instanceIdPath, instanceId, 'utf-8')
 }
 
 const authCodePath = path.join(process.cwd(), 'save', '__authcode')
@@ -491,12 +551,16 @@ const GITHUB_REPO = 'mrbart3885/Risuai-NodeOnly';
 const deploymentType = (() => {
     // Only portable builds have the .portable marker (created by CI release workflow).
     // Self-update is gated on this — all other types are inferred for analytics only.
-    if (existsSync(path.join(process.cwd(), '.portable'))) return 'portable';
-    if (existsSync(path.join(process.cwd(), '.git'))) return 'git';
-    if (existsSync('/.dockerenv')) return 'docker';
+    // Wrapped in try/catch so unexpected filesystem errors can't crash server boot.
     try {
-        const cgroup = readFileSync('/proc/1/cgroup', 'utf-8');
-        if (cgroup.includes('docker') || cgroup.includes('containerd')) return 'docker';
+        if (existsSync(path.join(process.cwd(), '.portable'))) return 'portable';
+        if (existsSync(path.join(process.cwd(), '.git'))) return 'git';
+        if (existsSync('/.dockerenv')) return 'docker';
+        try {
+            const cgroup = readFileSync('/proc/1/cgroup', 'utf-8');
+            if (cgroup.includes('docker') || cgroup.includes('containerd')) return 'docker';
+        } catch {}
+        if (process.platform === 'android') return 'termux';
     } catch {}
     return 'unknown';
 })();
@@ -835,7 +899,7 @@ async function migrateInlaysToFilesystem() {
             kvDel(`inlay_thumb/${id}`);
             kvDel(`inlay_info/${id}`);
         } catch (error) {
-            console.warn(`[InlayFS] Failed to migrate ${key}:`, error?.message || error);
+            logger.warn(`[InlayFS] Failed to migrate ${key}:`, error?.message || error);
         }
     }
 
@@ -849,6 +913,7 @@ async function fetchLatestRelease() {
             v: currentVersion,
             d: deploymentType,
             os: `${process.platform}-${process.arch}`,
+            id: instanceId,
         });
         const url = `${UPDATE_CHECK_URL}?${params}`;
         const res = await fetch(url);
@@ -859,7 +924,7 @@ async function fetchLatestRelease() {
         }
         return data;
     } catch (e) {
-        console.error('[Update] Failed to check for updates:', e.message);
+        logger.error('[Update] Failed to check for updates:', e.message);
         return null;
     }
 }
@@ -1632,7 +1697,12 @@ function parseBackupChunk(buffer, onEntry) {
 // Accepts any async iterable of Buffer chunks (HTTP request body, file stream, etc.)
 async function importBackupFromSource(dataSource, { maxBytes = 0, totalBytes = 0, onProgress = null } = {}) {
     const BATCH_SIZE = 5000;
-    let remainingBuffer = Buffer.alloc(0);
+    // Defer Buffer.concat until enough bytes for the next entry are buffered.
+    // Concatenating on every chunk arrival is O(n²) when a single entry (e.g.
+    // database.risudat) far exceeds chunk size.
+    let pendingChunks = [];
+    let pendingTotal = 0;
+    let nextEntryThreshold = 8;
     let hasDatabase = false;
     let assetsRestored = 0;
     let bytesReceived = 0;
@@ -1700,10 +1770,17 @@ async function importBackupFromSource(dataSource, { maxBytes = 0, totalBytes = 0
             }
             if (onProgress) onProgress(bytesReceived, totalBytes);
 
-            remainingBuffer = remainingBuffer.length === 0
-                ? Buffer.from(chunk)
-                : Buffer.concat([remainingBuffer, Buffer.from(chunk)]);
-            remainingBuffer = parseBackupChunk(remainingBuffer, (name, data) => {
+            pendingChunks.push(Buffer.from(chunk));
+            pendingTotal += chunk.length;
+            if (pendingTotal < nextEntryThreshold) continue;
+
+            const buffer = pendingChunks.length === 1
+                ? pendingChunks[0]
+                : Buffer.concat(pendingChunks, pendingTotal);
+            pendingChunks = [];
+            pendingTotal = 0;
+
+            const remaining = parseBackupChunk(buffer, (name, data) => {
                 if (seenEntryNames.has(name)) {
                     throw new Error(`Duplicate backup entry: ${name}`);
                 }
@@ -1791,9 +1868,28 @@ async function importBackupFromSource(dataSource, { maxBytes = 0, totalBytes = 0
                     batchCount = 0;
                 }
             });
+
+            if (remaining.length === 0) {
+                nextEntryThreshold = 8;
+            } else {
+                pendingChunks.push(remaining);
+                pendingTotal = remaining.length;
+                if (remaining.length < 4) {
+                    nextEntryThreshold = 8;
+                } else {
+                    const nameLen = remaining.readUInt32LE(0);
+                    const headerEnd = 4 + nameLen + 4;
+                    if (remaining.length < headerEnd) {
+                        nextEntryThreshold = headerEnd;
+                    } else {
+                        const dataLen = remaining.readUInt32LE(4 + nameLen);
+                        nextEntryThreshold = headerEnd + dataLen;
+                    }
+                }
+            }
         }
 
-        if (remainingBuffer.length > 0) {
+        if (pendingTotal > 0) {
             throw new Error('Backup stream ended with incomplete entry');
         }
         if (!hasDatabase) {
@@ -1848,12 +1944,12 @@ async function importBackupFromSource(dataSource, { maxBytes = 0, totalBytes = 0
     try {
         checkpointWal('TRUNCATE');
     } catch (checkpointError) {
-        console.warn('[Backup Import] WAL checkpoint after import failed:', checkpointError);
+        logger.warn('[Backup Import] WAL checkpoint after import failed:', checkpointError);
     }
 
     console.log(`[Backup Import] Complete: ${assetsRestored} assets restored, ${(bytesReceived / 1024 / 1024).toFixed(1)}MB processed`);
     if (coldStorageFailed > 0) {
-        console.error(`[Backup Import] ${coldStorageFailed} cold storage character(s) could not be restored`);
+        logger.error(`[Backup Import] ${coldStorageFailed} cold storage character(s) could not be restored`);
     }
     return { assetsRestored, bytesReceived, coldStorageFailed };
 }
@@ -2057,7 +2153,10 @@ const reverseProxyFunc = async (req, res, next) => {
             }
             return;
         }
-        console.error('[Proxy]', req.method, urlParam, err?.cause || err);
+        // Pass the actual `err` (not err.cause) so logger.* can tag it and the
+        // Express error middleware knows to skip. The cause chain is preserved
+        // via formatErrorWithCause in normalizeArgs.
+        logger.error(`[Proxy] ${req.method} ${urlParam}`, err);
         next(err);
         return;
     } finally {
@@ -2289,7 +2388,7 @@ async function hubProxyFunc(req, res) {
         }
         
     } catch (error) {
-        console.error("[Hub Proxy] Error:", error);
+        logger.error("[Hub Proxy] Error:", error);
         if (!res.headersSent) {
             res.status(502).send({ error: 'Proxy request failed: ' + error.message });
         } else {
@@ -2564,7 +2663,7 @@ app.get('/api/asset/:hexKey', sessionAuthMiddleware, async (req, res) => {
         })
         res.send(binary)
     } catch (error) {
-        console.error('[Asset] Failed to serve asset:', error);
+        logger.error('[Asset] Failed to serve asset:', error);
         res.status(500).end()
     }
 })
@@ -2635,7 +2734,9 @@ app.get('/api/read', async (req, res, next) => {
                     dbCache[filePath] = stripped;
                     value = Buffer.from(encodeRisuSaveLegacy(stripped));
                 } catch (e) {
-                    console.error('[Read] Failed to strip chats from database.bin:', e.message);
+                    // Log the Error itself (not just e.message) so logger.*
+                    // tags it and the Express middleware won't re-log after next().
+                    logger.error('[Read] Failed to strip chats from database.bin', e);
                     return next(e);
                 }
                 dbEtag = computeBufferEtag(value);
@@ -2707,6 +2808,75 @@ app.get('/api/list', async (req, res, next) => {
     }
 });
 
+// ─── /api/logs — client-side error/warning/info log persistence ───────────────
+const LOGS_POST_MAX_ENTRIES = 1000;
+app.post('/api/logs', async (req, res, next) => {
+    if (!await checkAuth(req, res)) return;
+    try {
+        const body = req.body;
+        const entries = Array.isArray(body) ? body : [body];
+        if (entries.length === 0) {
+            return res.send({ success: true, written: 0 });
+        }
+        if (entries.length > LOGS_POST_MAX_ENTRIES) {
+            return res.status(413).send({ error: `too many entries (max ${LOGS_POST_MAX_ENTRIES})` });
+        }
+        const prepared = entries
+            .filter(e => e && typeof e === 'object' && typeof e.message === 'string')
+            .map(e => ({
+                timestamp: typeof e.timestamp === 'number' ? e.timestamp : Date.now(),
+                level: e.level,
+                origin: 'client',
+                message: e.message,
+                description: e.description,
+                source: e.source,
+                count: e.count,
+                platform: e.platform,
+                clientId: e.clientId,
+                userAgent: e.userAgent,
+            }));
+        const written = addLogBatch(prepared);
+        res.send({ success: true, written });
+    } catch (error) {
+        next(error);
+    }
+});
+
+app.get('/api/logs', async (req, res, next) => {
+    if (!await checkAuth(req, res)) return;
+    try {
+        const parseCsv = (v) => typeof v === 'string' && v.length ? v.split(',').filter(Boolean) : undefined;
+        const filterArgs = {
+            level: typeof req.query.level === 'string' ? req.query.level : undefined,
+            origin: typeof req.query.origin === 'string' ? req.query.origin : undefined,
+            since: req.query.since ? Number(req.query.since) : undefined,
+            excludeLevels: parseCsv(req.query.exclude_levels),
+            excludeOrigins: parseCsv(req.query.exclude_origins),
+            excludeBackground: req.query.exclude_background === '1',
+        };
+        const rows = queryLogs({
+            ...filterArgs,
+            beforeId: req.query.before_id ? Number(req.query.before_id) : undefined,
+            limit: req.query.limit ? Number(req.query.limit) : undefined,
+        });
+        // total reflects rows matching the same filter — pagination math depends on it.
+        res.send({ success: true, content: rows, total: countLogs(filterArgs) });
+    } catch (error) {
+        next(error);
+    }
+});
+
+app.delete('/api/logs', async (req, res, next) => {
+    if (!await checkAuth(req, res)) return;
+    if (!checkActiveSession(req, res)) return;
+    try {
+        clearLogs();
+        res.send({ success: true });
+    } catch (error) {
+        next(error);
+    }
+});
+
 app.post('/api/write', async (req, res, next) => {
     if(!await checkAuth(req, res)){
         return;
@@ -2772,7 +2942,7 @@ app.post('/api/write', async (req, res, next) => {
                     initChatStore(fullDb);
                     kvSet(key, mergedContent);
                 } catch (e) {
-                    console.error('[Write] Failed to merge chats into database.bin:', e.message);
+                    logger.error('[Write] Failed to merge chats into database.bin:', e.message);
                     // Do NOT write stubs-only to disk — that would permanently
                     // destroy existing full chat data. Preserve disk as-is.
                     res.status(500).json({ error: 'Database merge failed' });
@@ -2903,13 +3073,28 @@ app.post('/api/patch', async (req, res, next) => {
                         await persistDbCacheWithChats(filePath, decodedKey);
                     } else {
                         const data = Buffer.from(encodeRisuSaveLegacy(dbCache[filePath]));
-                        kvSet(decodedKey, data);
+                        try {
+                            kvSet(decodedKey, data);
+                        } catch (err) {
+                            if (err && typeof err === 'object') {
+                                try { err.attemptedSize = data.length; } catch {}
+                            }
+                            throw err;
+                        }
                     }
+                    // Persist succeeded — clear before backup so a backup-only
+                    // failure isn't attributed to data loss.
+                    clearPersistFailure();
                     if (decodedKey === 'database/database.bin') {
-                        createBackupAndRotate();
+                        try {
+                            createBackupAndRotate();
+                        } catch (backupErr) {
+                            logger.warn(`[Patch] Backup rotation failed for ${decodedKey}:`, backupErr);
+                        }
                     }
                 } catch (error) {
-                    console.error(`[Patch] Error saving ${decodedKey}:`, error);
+                    logger.error(`[Patch] Error saving ${decodedKey}:`, error);
+                    recordPersistFailure(error, `patch:${decodedKey}`);
                 } finally {
                     delete saveTimers[filePath];
                 }
@@ -2920,14 +3105,19 @@ app.post('/api/patch', async (req, res, next) => {
                 dbEtag = computeBufferEtag(Buffer.from(encodeRisuSaveLegacy(dbCache[filePath])));
             }
 
-            res.send({
+            const responsePayload = {
                 success: true,
                 appliedOperations: result.length,
                 etag: decodedKey === 'database/database.bin' ? dbEtag : undefined,
-            });
+            };
+            const persistWarning = currentPersistWarning();
+            if (persistWarning) {
+                responsePayload.persistWarning = persistWarning;
+            }
+            res.send(responsePayload);
         });
     } catch (error) {
-        console.error(`[Patch] Error applying patch to ${filePath}:`, error.name);
+        logger.error(`[Patch] Error applying patch to ${filePath}:`, error.name);
         res.status(500).send({
             error: 'Patch application failed: ' + (error && error.message ? error.message : error)
         });
@@ -3030,9 +3220,15 @@ app.post('/api/assets/bulk-write', async (req, res, next) => {
 app.get('/api/backup/export', async (req, res, next) => {
     if(!await checkAuth(req, res)){ return; }
     try {
+        // ?target=upstream excludes NodeOnly-only inlay namespaces (inlay/,
+        // inlay_sidecar/, inlay_meta/). Their entry names contain a slash,
+        // which upstream RisuAI's import treats as a path under assets/ and
+        // fails with ENOENT. The export becomes lossy on inlay images but
+        // imports cleanly into upstream.
+        const target = req.query.target === 'upstream' ? 'upstream' : 'nodeonly';
         // Flush any pending patches to ensure export includes latest data
         await flushPendingDb();
-        const inlayFiles = await listInlayFiles();
+        const inlayFiles = target === 'upstream' ? [] : await listInlayFiles();
         const inlayEntries = await Promise.all(inlayFiles.map(async (entry) => {
             const stat = await fs.stat(entry.filePath);
             return {
@@ -3058,6 +3254,13 @@ app.get('/api/backup/export', async (req, res, next) => {
                 return null;
             }
         }));
+        const inlayMetaEntries = target === 'upstream' ? [] : kvListWithSizes('inlay_meta/').map((entry) => ({
+            kind: 'kv',
+            key: entry.key,
+            backupName: entry.key,
+            sortKey: entry.key,
+            size: entry.size,
+        }));
         const namespacedEntries = [
             ...kvListWithSizes('assets/').map((entry) => ({
                 kind: 'kv',
@@ -3067,13 +3270,7 @@ app.get('/api/backup/export', async (req, res, next) => {
                 size: entry.size,
             })),
             ...listColdStorageBackupEntries(),
-            ...kvListWithSizes('inlay_meta/').map((entry) => ({
-                kind: 'kv',
-                key: entry.key,
-                backupName: entry.key,
-                sortKey: entry.key,
-                size: entry.size,
-            })),
+            ...inlayMetaEntries,
             ...inlayEntries,
             ...sidecarEntries.filter(Boolean),
         ].sort((a, b) => a.sortKey.localeCompare(b.sortKey));
@@ -3082,8 +3279,9 @@ app.get('/api/backup/export', async (req, res, next) => {
             return sum + 8 + Buffer.byteLength(entry.backupName, 'utf-8') + entry.size;
         }, 0) + (dbSize ? 8 + Buffer.byteLength('database.risudat', 'utf-8') + dbSize : 0);
 
+        const filenameSuffix = target === 'upstream' ? '-upstream' : '';
         res.setHeader('content-type', 'application/octet-stream');
-        res.setHeader('content-disposition', `attachment; filename="risu-backup-${Date.now()}.bin"`);
+        res.setHeader('content-disposition', `attachment; filename="risu-backup-${Date.now()}${filenameSuffix}.bin"`);
         res.setHeader('content-length', totalBytes);
         res.setHeader('x-risu-backup-assets', namespacedEntries.length);
 
@@ -3486,7 +3684,7 @@ function restoreColdStorageCharacter(character) {
         migrateLegacy: true,
     });
     if (!entry) {
-        console.error(`[ColdStorage] character data not found for key: ${key}`);
+        logger.error(`[ColdStorage] character data not found for key: ${key}`);
         return false;
     }
     try {
@@ -3496,12 +3694,12 @@ function restoreColdStorageCharacter(character) {
             delete character.coldstorage;
             delete character.coldStoragedChats;
         } else {
-            console.error(`[ColdStorage] unexpected character cold data format for key: ${key}`);
+            logger.error(`[ColdStorage] unexpected character cold data format for key: ${key}`);
             return false;
         }
         return true;
     } catch (err) {
-        console.error(`[ColdStorage] character restore failed for key ${key}:`, err.message);
+        logger.error(`[ColdStorage] character restore failed for key ${key}:`, err.message);
         return false;
     }
 }
@@ -3575,7 +3773,7 @@ function restoreColdStorageChat(chat) {
         migrateLegacy: true,
     });
     if (!entry) {
-        console.error(`[ColdStorage] data not found for key: ${key}`);
+        logger.error(`[ColdStorage] data not found for key: ${key}`);
         return false;
     }
     try {
@@ -3591,7 +3789,7 @@ function restoreColdStorageChat(chat) {
         chat.lastDate = Date.now();
         return true;
     } catch (err) {
-        console.error(`[ColdStorage] restore failed for key ${key}:`, err.message);
+        logger.error(`[ColdStorage] restore failed for key ${key}:`, err.message);
         return false;
     }
 }
@@ -3694,12 +3892,28 @@ app.post('/api/chat-content/:chaId/:chatIndex', async (req, res, next) => {
                         if (raw) {
                             const dbObj = normalizeJSON(await decodeRisuSave(raw));
                             const fullDb = reassembleFullDb(stripChatsFromDb(dbObj));
-                            kvSet('database/database.bin', Buffer.from(encodeRisuSaveLegacy(fullDb)));
+                            const encoded = Buffer.from(encodeRisuSaveLegacy(fullDb));
+                            try {
+                                kvSet('database/database.bin', encoded);
+                            } catch (err) {
+                                if (err && typeof err === 'object') {
+                                    try { err.attemptedSize = encoded.length; } catch {}
+                                }
+                                throw err;
+                            }
                         }
                     }
-                    createBackupAndRotate();
+                    // Persist succeeded — clear before backup so a backup-only
+                    // failure isn't attributed to data loss.
+                    clearPersistFailure();
+                    try {
+                        createBackupAndRotate();
+                    } catch (backupErr) {
+                        logger.warn('[ChatContent] Backup rotation failed:', backupErr);
+                    }
                 } catch (error) {
-                    console.error('[ChatContent] Error persisting chat:', error);
+                    logger.error('[ChatContent] Error persisting chat:', error);
+                    recordPersistFailure(error, 'chat-content');
                 } finally {
                     delete saveTimers[DB_HEX_KEY];
                 }
@@ -4222,7 +4436,7 @@ app.post('/api/self-update', async (req, res) => {
             try {
                 await fs.rename(path.join(appDir, e), path.join(backupDir, e));
             } catch (backupErr) {
-                console.error(`[Update] Failed to back up ${e}: ${backupErr.message}`);
+                logger.error(`[Update] Failed to back up ${e}: ${backupErr.message}`);
                 console.log('[Update] Restoring files already moved to backup...');
                 await restoreBackup(backupDir, appDir);
                 throw new Error(isWin
@@ -4241,7 +4455,7 @@ app.post('/api/self-update', async (req, res) => {
                 if (skipMove.has(e)) continue;
                 const dest = path.join(appDir, e);
                 await fs.rm(dest, { recursive: true, force: true }).catch(() => {});
-                await fs.rename(path.join(sourceDir, e), dest);
+                await moveAcrossVolumes(path.join(sourceDir, e), dest);
                 moved.push(e);
             }
             // Post-move validation
@@ -4256,7 +4470,7 @@ app.post('/api/self-update', async (req, res) => {
                 }
             }
         } catch (moveErr) {
-            console.error(`[Update] Move failed: ${moveErr.message}`);
+            logger.error(`[Update] Move failed: ${moveErr.message}`);
             console.log('[Update] Restoring from backup...');
             await restoreBackup(backupDir, appDir);
             throw new Error('Update failed, previous version restored. Please try again.');
@@ -4369,19 +4583,34 @@ app.post('/api/self-update', async (req, res) => {
             }
             process.exit(0);
             } catch (restartErr) {
-                console.error('[Update] Restart failed:', restartErr);
+                logger.error('[Update] Restart failed:', restartErr);
                 selfUpdateInProgress = false;
             }
         }, 500);
 
     } catch (e) {
-        console.error('[Update] Self-update failed:', e);
+        logger.error('[Update] Self-update failed:', e);
         send('error', null, `Update failed: ${e.message}`);
         res.end();
         selfUpdateInProgress = false;
         if (tmpDir) fs.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
     }
 });
+
+// Helper: rename, falling back to copy+remove when src and dest are on
+// different volumes (Windows EXDEV — e.g. app on D:, os.tmpdir() on C:)
+async function moveAcrossVolumes(src, dest) {
+    try {
+        await fs.rename(src, dest);
+    } catch (err) {
+        if (err && err.code === 'EXDEV') {
+            await fs.cp(src, dest, { recursive: true, force: true });
+            await fs.rm(src, { recursive: true, force: true });
+            return;
+        }
+        throw err;
+    }
+}
 
 // Helper: restore files from backup directory into app root (mirrors updater.cjs restoreBackupIntoRoot)
 async function restoreBackup(backupDir, rootDir) {
@@ -4391,7 +4620,7 @@ async function restoreBackup(backupDir, rootDir) {
         const dest = path.join(rootDir, entry);
         try {
             await fs.rm(dest, { recursive: true, force: true }).catch(() => {});
-            await fs.rename(src, dest);
+            await moveAcrossVolumes(src, dest);
         } catch { /* best effort */ }
     }
 }
@@ -4421,7 +4650,7 @@ app.post('/api/tunnel/start', async (req, res) => {
         try {
             cfPath = await downloadCloudflared();
         } catch (e) {
-            console.error('[Tunnel] Download failed:', e.message);
+            logger.error('[Tunnel] Download failed:', e.message);
             tunnelStatus = 'error';
             tunnelError = `Failed to download cloudflared: ${e.message}`;
             return;
@@ -4461,7 +4690,7 @@ function startTunnelProcess(cfPath) {
         });
 
         tunnelProcess.on('error', (err) => {
-            console.error('[Tunnel] Process error:', err.message);
+            logger.error('[Tunnel] Process error:', err.message);
             tunnelStatus = 'error';
             tunnelError = err.message;
             tunnelProcess = null;
@@ -4500,6 +4729,13 @@ app.post('/api/tunnel/stop', async (req, res) => {
     res.json({ status: 'off' });
 });
 
+// ─── Express error middleware — must be registered after all routes ─────────
+app.use(expressErrorMiddleware);
+app.use((err, req, res, next) => {
+    if (res.headersSent) return next(err);
+    res.status(500).json({ error: err?.message || 'internal server error' });
+});
+
 // ─────────────────────────────────────────────────────────────────────────────
 
 async function getHttpsOptions() {
@@ -4520,8 +4756,12 @@ async function getHttpsOptions() {
         return { key, cert };
 
     } catch (error) {
-        console.error('[Server] SSL setup errors:', error.message);
-        console.log('[Server] Start the server with HTTP instead of HTTPS...');
+        if (error.code === 'ENOENT') {
+            logger.info('[Server] No SSL certificate found, starting with HTTP');
+        } else {
+            logger.error('[Server] SSL setup errors:', error.message);
+            console.log('[Server] Start the server with HTTP instead of HTTPS...');
+        }
         return null;
     }
 }
@@ -4551,7 +4791,7 @@ async function startServer() {
             });
         }
     } catch (error) {
-        console.error('[Server] Failed to start server :', error);
+        logger.error('[Server] Failed to start server :', error);
         process.exit(1);
     }
 }
@@ -4561,7 +4801,7 @@ for (const sig of ['SIGTERM', 'SIGINT']) {
     process.on(sig, async () => {
         console.log(`[Server] Received ${sig}, flushing pending data...`);
         stopTunnel();
-        try { await flushPendingDb(); } catch (e) { console.error('[Server] Flush error:', e); }
+        try { await flushPendingDb(); } catch (e) { logger.error('[Server] Flush error:', e); }
         try { checkpointWal('TRUNCATE'); } catch { /* non-fatal */ }
         process.exit(0);
     });
