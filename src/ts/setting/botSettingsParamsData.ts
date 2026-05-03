@@ -16,6 +16,46 @@ import {
     verbositySelectOptions,
 } from '../model/reasoningVerbosity';
 
+type GeminiThinkingLevel = 'minimal' | 'low' | 'medium' | 'high';
+
+function getModelId(ctx: { modelInfo: { id?: string; internalID?: string } }): string {
+    return ctx.modelInfo.internalID ?? ctx.modelInfo.id ?? '';
+}
+
+function isGeminiThinkingLevelModel(ctx: { modelInfo: { id?: string; internalID?: string; flags: LLMFlags[] } }): boolean {
+    return ctx.modelInfo.flags.includes(LLMFlags.geminiThinking) && /^gemini-3(?:[.-]|$)/.test(getModelId(ctx));
+}
+
+function supportsGeminiMinimalThinking(ctx: { modelInfo: { id?: string; internalID?: string } }): boolean {
+    return getModelId(ctx) === 'gemini-3-flash-preview';
+}
+
+function supportsGeminiMediumThinking(ctx: { modelInfo: { id?: string; internalID?: string } }): boolean {
+    const modelId = getModelId(ctx);
+    return modelId === 'gemini-3-flash-preview' || modelId.startsWith('gemini-3.1-');
+}
+
+function geminiThinkingTokensToLevel(tokens: number | null | undefined, ctx: { modelInfo: { id?: string; internalID?: string } }): GeminiThinkingLevel {
+    const budget = typeof tokens === 'number' ? tokens : 16384;
+    if (supportsGeminiMinimalThinking(ctx) && budget <= 0) return 'minimal';
+    if (budget >= 16384) return 'high';
+    if (supportsGeminiMediumThinking(ctx) && budget >= 4096) return 'medium';
+    return 'low';
+}
+
+function geminiThinkingLevelToTokens(level: GeminiThinkingLevel): number {
+    switch (level) {
+        case 'minimal':
+            return 0;
+        case 'low':
+            return 1024;
+        case 'medium':
+            return 4096;
+        case 'high':
+            return 16384;
+    }
+}
+
 /**
  * Basic parameter settings that are always visible
  */
@@ -155,6 +195,29 @@ export const modelSpecificParameterItems: SettingItem[] = [
         keywords: ['thinking', 'type', 'mode', 'adaptive', 'budget'],
     },
     {
+        id: 'params.geminiThinkingLevel',
+        type: 'segmented',
+        fallbackLabel: 'Gemini Thinking Level',
+        helpKey: 'thinkingTokens',
+        bindKey: 'thinkingTokens',
+        condition: (ctx) => isGeminiThinkingLevelModel(ctx),
+        getValue: (db, ctx) => geminiThinkingTokensToLevel(db.thinkingTokens, ctx!),
+        setValue: (db, val) => {
+            db.thinkingTokens = geminiThinkingLevelToTokens(val as GeminiThinkingLevel);
+        },
+        options: {
+            segmentOptions: [
+                { value: 'minimal', label: 'Minimal', condition: supportsGeminiMinimalThinking },
+                { value: 'low', label: 'Low' },
+                { value: 'medium', label: 'Medium', condition: supportsGeminiMediumThinking },
+                { value: 'high', label: 'High' },
+            ],
+            segmentFullWidth: true,
+            segmentSize: 'sm',
+        },
+        keywords: ['gemini', 'thinking', 'level', 'reasoning'],
+    },
+    {
         id: 'params.thinkingTokens',
         type: 'slider',
         labelKey: 'thinkingTokens',
@@ -162,6 +225,7 @@ export const modelSpecificParameterItems: SettingItem[] = [
         bindKey: 'thinkingTokens',
         condition: (ctx) =>
             ctx.modelInfo.parameters.includes('thinking_tokens') &&
+            !isGeminiThinkingLevelModel(ctx) &&
             (
                 ctx.modelInfo.flags.includes(LLMFlags.geminiThinking) ||
                 ctx.db.thinkingType === 'budget'
@@ -329,6 +393,7 @@ export const allBasicParameterItems: SettingItem[] = [
 
     // Model-specific sampling parameters (in user-specified order)
     modelSpecificParameterItems.find(i => i.id === 'params.thinkingType')!,
+    modelSpecificParameterItems.find(i => i.id === 'params.geminiThinkingLevel')!,
     modelSpecificParameterItems.find(i => i.id === 'params.thinkingTokens')!,
     modelSpecificParameterItems.find(i => i.id === 'params.adaptiveThinkingEffort')!,
     ...samplingParameterItems, // temperature

@@ -575,7 +575,9 @@ export async function requestClaude(arg:RequestDataArgumentExtended):Promise<req
         headers['anthropic-dangerous-direct-browser-access'] = 'true'
     }
 
-    if(arg.extraHeaders && arg.modelInfo?.provider === LLMProvider.Copilot){
+    const usesCopilotHeaders = !!arg.extraHeaders && arg.modelInfo?.provider === LLMProvider.Copilot
+
+    if(usesCopilotHeaders){
         const {
             'anthropic-beta': _anthropicBeta,
             'anthropic-version': _anthropicVersion,
@@ -615,7 +617,7 @@ export async function requestClaude(arg:RequestDataArgumentExtended):Promise<req
         betas.push('extended-cache-ttl-2025-04-11')
     }
 
-    if(betas.length > 0 && !hasCustomAnthropicBeta){
+    if(betas.length > 0 && !hasCustomAnthropicBeta && !usesCopilotHeaders){
         headers['anthropic-beta'] = betas.join(',')
     }
 
