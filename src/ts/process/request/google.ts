@@ -341,7 +341,7 @@ export async function requestGoogleCloudVertex(arg:RequestDataArgumentExtended):
 
     let body: any = {
         contents: reformatedChat,
-        generation_config: applyParameters({
+        generationConfig: applyParameters({
             "maxOutputTokens": maxTokens
         }, para, {
             'top_p': "topP",
@@ -375,18 +375,19 @@ export async function requestGoogleCloudVertex(arg:RequestDataArgumentExtended):
 
     if(arg.modelInfo.flags.includes(LLMFlags.geminiThinking)){
         const internalId = arg.modelInfo.internalID
-        const thinkingBudget = body.generation_config.thinkingBudget
+        const thinkingBudget = body.generationConfig.thinkingBudget
 
         // Gemini 3 models use `thinking_level` (via thinkingConfig.thinkingLevel) instead of `thinking_budget`.
         // Keep UI/param name 'thinking_tokens' but translate it here for compatibility.
-        if (internalId && /^gemini-3-/.test(internalId)) {
+        if (internalId && /^gemini-3(?:[.-]|$)/.test(internalId)) {
             const budgetNum = typeof thinkingBudget === 'number' ? thinkingBudget : Number(thinkingBudget)
 
             // Conservative mapping: keep levels coarse to avoid model-specific strict validation.
             // - gemini-3-flash-preview: LOW/MEDIUM/HIGH
+            // - gemini-3.1-pro-preview: LOW/MEDIUM/HIGH
             // - gemini-3-pro* (incl. image): LOW/HIGH
             let thinkingLevel: 'LOW' | 'MEDIUM' | 'HIGH' = 'HIGH'
-            if (internalId === 'gemini-3-flash-preview') {
+            if (internalId === 'gemini-3-flash-preview' || internalId.startsWith('gemini-3.1-')) {
                 if (!Number.isFinite(budgetNum) || budgetNum >= 16384) thinkingLevel = 'HIGH'
                 else if (budgetNum >= 4096) thinkingLevel = 'MEDIUM'
                 else thinkingLevel = 'LOW'
@@ -395,18 +396,18 @@ export async function requestGoogleCloudVertex(arg:RequestDataArgumentExtended):
                 else thinkingLevel = 'LOW'
             }
 
-            body.generation_config.thinkingConfig = {
+            body.generationConfig.thinkingConfig = {
                 "thinkingLevel": thinkingLevel,
                 "includeThoughts": true,
             }
         } else {
-            body.generation_config.thinkingConfig = {
+            body.generationConfig.thinkingConfig = {
                 "thinkingBudget": thinkingBudget,
                 "includeThoughts": true,
             }
         }
 
-        delete body.generation_config.thinkingBudget
+        delete body.generationConfig.thinkingBudget
     }
 
     if(systemPrompt.trim() === ''){
@@ -414,13 +415,13 @@ export async function requestGoogleCloudVertex(arg:RequestDataArgumentExtended):
     }
 
     if(arg.modelInfo.flags.includes(LLMFlags.hasAudioOutput)){
-        body.generation_config.responseModalities = [
+        body.generationConfig.responseModalities = [
             'TEXT', 'AUDIO'
         ]
         arg.useStreaming = false
     }
     if(arg.imageResponse || arg.modelInfo.flags.includes(LLMFlags.hasImageOutput)){ 
-        body.generation_config.responseModalities = [
+        body.generationConfig.responseModalities = [
             'TEXT', 'IMAGE'
         ]
         arg.useStreaming = false
@@ -431,7 +432,7 @@ export async function requestGoogleCloudVertex(arg:RequestDataArgumentExtended):
     }
 
     if(db.gptVisionQuality === 'high'){
-        body.generation_config.mediaResolution = "MEDIA_RESOLUTION_MEDIUM"
+        body.generationConfig.mediaResolution = "MEDIA_RESOLUTION_MEDIUM"
     }
 
     const PROJECT_ID = db.google.projectId
@@ -440,7 +441,7 @@ export async function requestGoogleCloudVertex(arg:RequestDataArgumentExtended):
 
     const isVertexGlobalOnlyModel = (modelId: string) => {
         // As of 2025-12, Gemini 3 preview models are only available on the global endpoint.
-        return /^gemini-3-.*-preview$/.test(modelId)
+        return /^gemini-3(?:[.-]).*-preview$/.test(modelId)
     }
 
     async function generateToken(email:string,key:string){
@@ -549,9 +550,9 @@ export async function requestGoogleCloudVertex(arg:RequestDataArgumentExtended):
 
     
     if(db.jsonSchemaEnabled || arg.schema){
-        body.generation_config.response_mime_type = "application/json"
-        body.generation_config.response_schema = getGeneralJSONSchema(arg.schema, ['$schema','additionalProperties'])
-        console.log(body.generation_config.response_schema)
+        body.generationConfig.responseMimeType = "application/json"
+        body.generationConfig.responseSchema = getGeneralJSONSchema(arg.schema, ['$schema','additionalProperties'])
+        console.log(body.generationConfig.responseSchema)
     }    
     
     let url = ''

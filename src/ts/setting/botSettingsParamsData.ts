@@ -162,7 +162,10 @@ export const modelSpecificParameterItems: SettingItem[] = [
         bindKey: 'thinkingTokens',
         condition: (ctx) =>
             ctx.modelInfo.parameters.includes('thinking_tokens') &&
-            ctx.db.thinkingType === 'budget',
+            (
+                ctx.modelInfo.flags.includes(LLMFlags.geminiThinking) ||
+                ctx.db.thinkingType === 'budget'
+            ),
         options: {
             min: -1,
             max: 64000,
