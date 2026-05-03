@@ -386,9 +386,10 @@ export async function requestGoogleCloudVertex(arg:RequestDataArgumentExtended):
             // - gemini-3-flash-preview: LOW/MEDIUM/HIGH
             // - gemini-3.1-pro-preview: LOW/MEDIUM/HIGH
             // - gemini-3-pro* (incl. image): LOW/HIGH
-            let thinkingLevel: 'LOW' | 'MEDIUM' | 'HIGH' = 'HIGH'
+            let thinkingLevel: 'MINIMAL' | 'LOW' | 'MEDIUM' | 'HIGH' = 'HIGH'
             if (internalId === 'gemini-3-flash-preview' || internalId.startsWith('gemini-3.1-')) {
-                if (!Number.isFinite(budgetNum) || budgetNum >= 16384) thinkingLevel = 'HIGH'
+                if (internalId === 'gemini-3-flash-preview' && Number.isFinite(budgetNum) && budgetNum <= 0) thinkingLevel = 'MINIMAL'
+                else if (!Number.isFinite(budgetNum) || budgetNum >= 16384) thinkingLevel = 'HIGH'
                 else if (budgetNum >= 4096) thinkingLevel = 'MEDIUM'
                 else thinkingLevel = 'LOW'
             } else {

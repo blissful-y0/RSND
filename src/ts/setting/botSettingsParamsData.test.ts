@@ -50,4 +50,59 @@ describe('botSettingsParamsData reasoning/verbosity controls', () => {
             },
         } as any)).toBe(true)
     })
+
+    test('shows Gemini thinking level control for Gemini 3 models', () => {
+        const geminiThinkingLevel = modelSpecificParameterItems.find(
+            (item) => item.id === 'params.geminiThinkingLevel',
+        )
+
+        expect(geminiThinkingLevel?.condition?.({
+            db: {},
+            modelInfo: {
+                id: 'gemini-3.1-pro-preview',
+                internalID: 'gemini-3.1-pro-preview',
+                flags: [LLMFlags.geminiThinking],
+                parameters: ['thinking_tokens'],
+            },
+            subModelInfo: {
+                flags: [],
+                parameters: [],
+            },
+        } as any)).toBe(true)
+        expect(geminiThinkingLevel?.options?.segmentOptions?.map((option) => option.value)).toContain('medium')
+    })
+
+    test('limits Gemini thinking level options by model support', () => {
+        const geminiThinkingLevel = modelSpecificParameterItems.find(
+            (item) => item.id === 'params.geminiThinkingLevel',
+        )
+
+        const minimal = geminiThinkingLevel?.options?.segmentOptions?.find((option) => option.value === 'minimal')
+        expect(minimal?.condition?.({
+            db: {},
+            modelInfo: {
+                id: 'gemini-3-flash-preview',
+                internalID: 'gemini-3-flash-preview',
+                flags: [LLMFlags.geminiThinking],
+                parameters: ['thinking_tokens'],
+            },
+            subModelInfo: {
+                flags: [],
+                parameters: [],
+            },
+        } as any)).toBe(true)
+        expect(minimal?.condition?.({
+            db: {},
+            modelInfo: {
+                id: 'gemini-3.1-pro-preview',
+                internalID: 'gemini-3.1-pro-preview',
+                flags: [LLMFlags.geminiThinking],
+                parameters: ['thinking_tokens'],
+            },
+            subModelInfo: {
+                flags: [],
+                parameters: [],
+            },
+        } as any)).toBe(false)
+    })
 })

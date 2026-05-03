@@ -104,4 +104,56 @@ describe('requestGoogleCloudVertex Gemini thinking config', () => {
         expect(parsed.body.generationConfig.thinkingBudget).toBeUndefined()
         expect(parsed.body.generation_config).toBeUndefined()
     })
+
+    test('serializes Gemini 3 Flash zero thinking tokens as minimal thinkingLevel', async () => {
+        mocks.getDatabase.mockReturnValue({
+            google: {
+                accessToken: 'test-key',
+                projectId: '',
+            },
+            vertexRegion: 'us-central1',
+            vertexAccessTokenExpires: 0,
+            gptVisionQuality: 'low',
+            jsonSchemaEnabled: false,
+            saveSignatures: false,
+            temperature: 80,
+            top_p: 1,
+            top_k: 0,
+            frequencyPenalty: 70,
+            PresensePenalty: 70,
+            thinkingTokens: 0,
+            seperateParametersEnabled: false,
+            customModels: [],
+        })
+        const { requestGoogleCloudVertex } = await import('./google')
+
+        const result = await requestGoogleCloudVertex({
+            formated: [{ role: 'user', content: 'hello' }],
+            maxTokens: 512,
+            mode: 'model',
+            useStreaming: false,
+            customURL: 'https://example.test/v1beta/',
+            previewBody: true,
+            modelInfo: {
+                id: 'gemini-3-flash-preview',
+                internalID: 'gemini-3-flash-preview',
+                name: 'Gemini Flash 3 Preview',
+                provider: LLMProvider.GoogleCloud,
+                format: LLMFormat.GoogleCloud,
+                flags: [
+                    LLMFlags.geminiThinking,
+                    LLMFlags.hasStreaming,
+                    LLMFlags.requiresAlternateRole,
+                ],
+                parameters: ['thinking_tokens', 'temperature', 'top_p', 'top_k'],
+                tokenizer: LLMTokenizer.GoogleCloud,
+            },
+        } as any)
+
+        if (result.type !== 'success' || typeof result.result !== 'string') {
+            throw new Error(`Expected preview JSON, got ${result.type}`)
+        }
+        const parsed = JSON.parse(result.result)
+        expect(parsed.body.generationConfig.thinkingConfig.thinkingLevel).toBe('MINIMAL')
+    })
 })
