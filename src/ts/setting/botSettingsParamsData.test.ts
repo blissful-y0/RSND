@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'vitest'
+import { LLMFlags } from '../model/types'
 import { modelSpecificParameterItems } from './botSettingsParamsData'
 
 describe('botSettingsParamsData reasoning/verbosity controls', () => {
@@ -28,5 +29,25 @@ describe('botSettingsParamsData reasoning/verbosity controls', () => {
             'high',
         ])
         expect(verbosity?.options?.segmentFullWidth).toBe(true)
+    })
+
+    test('shows thinking token control for Gemini thinking models without Claude thinking type', () => {
+        const thinkingTokens = modelSpecificParameterItems.find(
+            (item) => item.id === 'params.thinkingTokens',
+        )
+
+        expect(thinkingTokens?.condition?.({
+            db: {
+                thinkingType: 'off',
+            },
+            modelInfo: {
+                flags: [LLMFlags.geminiThinking],
+                parameters: ['thinking_tokens'],
+            },
+            subModelInfo: {
+                flags: [],
+                parameters: [],
+            },
+        } as any)).toBe(true)
     })
 })
