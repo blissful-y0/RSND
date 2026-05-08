@@ -1,7 +1,7 @@
 # ------------------------------------------------------------------------------------------
 
 ARG NODE_IMAGE=node:24-slim
-ARG PNPM_VERSION=9.12.2
+ARG PNPM_VERSION=10
 FROM ${NODE_IMAGE} AS base
 ARG PNPM_VERSION
 WORKDIR /app
