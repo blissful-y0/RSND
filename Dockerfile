@@ -1,15 +1,15 @@
 # ------------------------------------------------------------------------------------------
 
-ARG NODE_IMAGE=node:24-slim
-ARG PNPM_VERSION=9.12.2
-FROM ${NODE_IMAGE} AS base
-ARG PNPM_VERSION
+FROM node:24-slim AS base
 WORKDIR /app
 ENV PNPM_HOME="/pnpm"
 ENV PATH="$PNPM_HOME:$PATH"
-COPY package.json pnpm-lock.yaml ./
+# Copy dependency-related file
+COPY package.json .
+COPY pnpm-lock.yaml .
 
-RUN corepack enable && corepack prepare pnpm@${PNPM_VERSION} --activate
+RUN corepack enable
+RUN corepack install --global pnpm@10
 
 # ------------------------------------------------------------------------------------------
 
@@ -23,6 +23,7 @@ RUN --mount=type=cache,id=pnpm,target=/pnpm/store pnpm install --prod --frozen-l
 
 FROM deps AS builder
 COPY . .
+# Install including dev deps
 RUN --mount=type=cache,id=pnpm,target=/pnpm/store pnpm install --frozen-lockfile
 ENV NODE_OPTIONS="--max-old-space-size=4096"
 RUN --mount=type=cache,id=pnpm,target=/pnpm/store pnpm build
@@ -32,9 +33,6 @@ RUN --mount=type=cache,id=pnpm,target=/pnpm/store pnpm build
 FROM base AS runtime
 ARG TARGETARCH
 WORKDIR /app
-
-ENV NODE_ENV=production
-ENV PORT=6001
 
 # Install cloudflared for remote access tunnel support
 RUN apt-get update \
@@ -51,10 +49,9 @@ COPY --from=deps /app/node_modules /app/node_modules
 COPY --from=builder /app/server ./server
 COPY --from=builder /app/dist ./dist
 
+ENV NODE_ENV=production
 EXPOSE 6001
 
-HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 CMD node -e "const http=require('http');const req=http.get({host:'127.0.0.1',port:process.env.PORT||6001,path:'/'},(res)=>process.exit(res.statusCode < 500 ? 0 : 1));req.on('error',()=>process.exit(1));req.setTimeout(4000,()=>{req.destroy();process.exit(1);});"
-
-CMD ["node", "server/node/server.cjs"]
+CMD ["pnpm", "runserver"]
 
 # ------------------------------------------------------------------------------------------

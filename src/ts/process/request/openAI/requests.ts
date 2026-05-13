@@ -14,9 +14,9 @@ interface LocalNetworkRequestOptions {
     requestTimeoutMs?: number
 }
 
-function getLocalNetworkRequestOptions(url: string): LocalNetworkRequestOptions {
+function getLocalNetworkRequestOptions(url: string, force: boolean = false): LocalNetworkRequestOptions {
     const db = getDatabase()
-    if (!db.localNetworkMode) return {}
+    if (!force && !db.localNetworkMode) return {}
     if (!isLocalNetworkUrl(url)) return {}
     return {
         networkRoute: 'local_network' as const,
@@ -596,7 +596,7 @@ export async function requestOpenAI(arg:RequestDataArgumentExtended):Promise<req
             chatId: arg.chatId,
             interceptor: 'openai_streaming',
             proxyPolicy: arg.proxyPolicy,
-            ...getLocalNetworkRequestOptions(replacerURL),
+            ...getLocalNetworkRequestOptions(replacerURL, arg.forceLocalNetwork),
         })
 
         if(da.status !== 200){
@@ -661,7 +661,7 @@ async function requestHTTPOpenAI(replacerURL:string,body:any, headers:Record<str
         interceptor: 'openai_basic',
         plainFetchDeforce: !!arg.extraHeaders,
         proxyPolicy: arg.proxyPolicy,
-        ...getLocalNetworkRequestOptions(replacerURL),
+        ...getLocalNetworkRequestOptions(replacerURL, arg.forceLocalNetwork),
     })
 
     function processTextResponse(dat: any):string{

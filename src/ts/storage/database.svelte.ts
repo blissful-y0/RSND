@@ -239,9 +239,6 @@ export function setDatabase(data:Database){
     if(checkNullish(data.supaMemoryKey)){
         data.supaMemoryKey = ""
     }
-    if(checkNullish(data.askRemoval)){
-        data.askRemoval = true
-    }
     if(checkNullish(data.confirmReroll)){
         data.confirmReroll = true
     }
@@ -907,7 +904,6 @@ export interface Database{
     jailbreak: string
     globalNote:string
     temperature: number
-    askRemoval:boolean
     maxContext: number
     maxResponse: number
     frequencyPenalty: number
@@ -968,7 +964,6 @@ export interface Database{
     promptPreprocess:boolean
     bias: [string, number][]
     swipe:boolean
-    instantRemove:boolean
     confirmReroll:boolean
     textTheme: string
     customTextTheme: {
@@ -2012,24 +2007,13 @@ export interface Chat{
     _placeholder?: boolean
 }
 
-/**
- * Minimal stub stored in database.bin — full chat data lives server-side.
- * Only exists in encoded/decoded data; at runtime stubs are converted to placeholder Chats.
- */
-export interface ChatStub {
-    id: string
-    name: string
-    lastDate?: number
-    folderId?: string
-    modules?: string[]
-    _stub: true
-}
+// `ChatStub` and `isChatStub` live in chatStub.ts so they can be unit-tested
+// without loading the Svelte runtime. Re-exported here to preserve existing
+// import paths across the codebase.
+export type { ChatStub } from './chatStub'
+export { isChatStub } from './chatStub'
 
-export type ChatOrStub = Chat | ChatStub
-
-export function isChatStub(chat: ChatOrStub): chat is ChatStub {
-    return '_stub' in chat && chat._stub === true
-}
+export type ChatOrStub = Chat | import('./chatStub').ChatStub
 
 export interface ChatFolder{
     id:string
@@ -2247,7 +2231,7 @@ export const themePresetTemplate: themePreset = {
     settingsCloseButtonSize: 24,
     showMemoryLimit: false,
     showFirstMessagePages: false,
-    hideRealm: false,
+    hideRealm: true,
     hideAllImages: false,
     hideMessagePageCount: false,
     showFolderName: false,

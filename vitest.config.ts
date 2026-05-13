@@ -9,10 +9,13 @@ const baseConfig =
 export default mergeConfig(
   baseConfig,
   defineConfig({
+    resolve: {
+      conditions: ['browser'],
+    },
     test: {
       environment: 'happy-dom',
-      exclude: [...configDefaults.exclude, 'test/compat/**/*.test.ts'],
-      setupFiles: ['src/ts/polyfill.ts'],
+      exclude: [...configDefaults.exclude, 'test/compat/**/*.test.ts', '.worktrees/**'],
+      setupFiles: ['src/ts/polyfill.ts', 'vitest.setup.ts'],
     },
   })
 )

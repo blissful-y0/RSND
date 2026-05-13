@@ -51,7 +51,7 @@
     const userAgent = typeof navigator === "undefined" ? "Unknown" : navigator.userAgent || "Unknown";
     const stackTraceCodeBlock = $derived.by(() => {
         const lines = [
-            `NodeOnly v${nodeOnlyVer}`,
+            `PocketRisu v${nodeOnlyVer}`,
             `OS: ${osLabel}`,
             `User-Agent: ${userAgent}`,
             `Risu environment: ${risuEnvironment}`,
@@ -84,7 +84,7 @@
     let expandedLogs: Set<number> = $state(new Set())
     let allExpanded = $state(false)
     let copiedKey: string | null = $state(null)
-    let togglePresetCurrentOnly = $state(false)
+    let togglePresetShowAll = $state(false)
 
     function closeTogglePresets() {
         togglePresetsOpenStore.set(false)
@@ -203,7 +203,7 @@
     }
 }}></svelte:window>
 
-{#if $alertStore.type !== 'none' &&  $alertStore.type !== 'cardexport' && $alertStore.type !== 'branches' && $alertStore.type !== 'selectModule' && $alertStore.type !== 'pukmakkurit' && $alertStore.type !== 'requestlogs' && $alertStore.type !== 'error' && $alertStore.type !== 'normal' && $alertStore.type !== 'markdown' && $alertStore.type !== 'ask' && $alertStore.type !== 'pluginconfirm' && $alertStore.type !== 'tos' && $alertStore.type !== 'input' && $alertStore.type !== 'select' && $alertStore.type !== 'wait' && $alertStore.type !== 'wait2' && $alertStore.type !== 'progress'}
+{#if $alertStore.type !== 'none' &&  $alertStore.type !== 'cardexport' && $alertStore.type !== 'branches' && $alertStore.type !== 'selectModule' && $alertStore.type !== 'pukmakkurit' && $alertStore.type !== 'requestlogs' && $alertStore.type !== 'error' && $alertStore.type !== 'normal' && $alertStore.type !== 'markdown' && $alertStore.type !== 'ask' && $alertStore.type !== 'pluginconfirm' && $alertStore.type !== 'tos' && $alertStore.type !== 'input' && $alertStore.type !== 'select' && $alertStore.type !== 'wait' && $alertStore.type !== 'wait2' && $alertStore.type !== 'progress' && $alertStore.type !== 'confirmMulti'}
     <div class="absolute w-full h-full z-50 bg-black/50 flex justify-center items-center">
         <div class="bg-darkbg p-4 break-any rounded-md flex flex-col max-w-3xl  max-h-full overflow-y-auto">
             {#if $alertStore.type === 'selectChar'}
@@ -957,6 +957,38 @@
     {/if}
 </ShDialog>
 
+<ShAlertDialog
+    open={$alertStore.type === 'confirmMulti'}
+    closeOnEscape={true}
+    closeOnOutsideClick={true}
+    onOpenChange={(v) => {
+        if (!v && $alertStore.type === 'confirmMulti') {
+            alertStore.set({ type: 'none', msg: 'cancel' })
+        }
+    }}
+>
+    {#snippet title()}
+        {$alertStore.msg}
+    {/snippet}
+    {#if $alertStore.type === 'confirmMulti'}
+        {@const actions = $alertStore.actions ?? []}
+        <div class="flex flex-col gap-2">
+            {#each actions as action, i}
+                <ShButton
+                    variant={action.variant ?? 'default'}
+                    className="w-full"
+                    onclick={() => alertStore.set({ type: 'none', msg: i.toString() })}
+                >
+                    {action.label}
+                </ShButton>
+            {/each}
+        </div>
+    {/if}
+    {#snippet footer()}
+        <ShButton variant="outline" onclick={() => alertStore.set({ type: 'none', msg: 'cancel' })}>{language.cancel}</ShButton>
+    {/snippet}
+</ShAlertDialog>
+
 <ShDialog
     open={$alertStore.type === 'input'}
     closable={false}
@@ -1037,16 +1069,16 @@
         {@const currentPromptPresetName = DBState.db.botPresets[DBState.db.botPresetsId]?.name}
         <div class="flex flex-col gap-3">
             <label class="flex items-center gap-2 text-sm text-textcolor2 self-start cursor-pointer select-none">
-                <ShSwitch bind:checked={togglePresetCurrentOnly} />
-                {language.togglePresetFilterCurrentOnly}
+                <ShSwitch bind:checked={togglePresetShowAll} />
+                {language.togglePresetFilterShowAll}
             </label>
 
             {#if !DBState.db.togglePresets?.length}
                 <p class="text-textcolor2 text-sm">{language.togglePresetEmpty}</p>
             {:else}
-                {@const filteredPresets = togglePresetCurrentOnly
-                    ? DBState.db.togglePresets.map((p, i) => ({preset: p, index: i})).filter(({preset}) => preset.promptPresetName === currentPromptPresetName)
-                    : DBState.db.togglePresets.map((p, i) => ({preset: p, index: i}))}
+                {@const filteredPresets = togglePresetShowAll
+                    ? DBState.db.togglePresets.map((p, i) => ({preset: p, index: i}))
+                    : DBState.db.togglePresets.map((p, i) => ({preset: p, index: i})).filter(({preset}) => preset.promptPresetName === currentPromptPresetName)}
                 {#if filteredPresets.length === 0}
                     <p class="text-textcolor2 text-sm">{language.togglePresetEmptyFiltered}</p>
                 {:else}
@@ -1067,7 +1099,7 @@
                                     {preset.name}
                                 </button>
                                 <div class="flex items-center shrink-0 pr-1 gap-0.5">
-                                    {#if !togglePresetCurrentOnly}
+                                    {#if togglePresetShowAll}
                                         <ShButton variant="ghost" size="icon-xs" onclick={() => {
                                             if (i > 0) {
                                                 const presets = DBState.db.togglePresets!;

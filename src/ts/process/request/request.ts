@@ -57,6 +57,7 @@ interface requestDataArgument{
     forceStreaming?: boolean
     blockPlugins?: boolean
     trackRequestActivity?: boolean
+    forceLocalNetwork?: boolean
 }
 
 export interface RequestDataArgumentExtended extends requestDataArgument{

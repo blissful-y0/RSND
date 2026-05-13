@@ -32,6 +32,17 @@
     let { chara = $bindable() }: Props = $props();
     let editMode = $state(false)
 
+    // Safety net: chats whose folderId references a deleted folder would
+    // otherwise be invisible (excluded from both the no-folder section and
+    // any folder section). Render them in the no-folder section instead.
+    // The server-side fix prevents new orphans; this guard rescues existing
+    // ones until boot-time normalize touches the disk.
+    const validFolderIds = $derived(
+        new Set((chara.chatFolders ?? []).map(f => f.id).filter(Boolean))
+    )
+    const isOrphanFolder = (folderId: string | null | undefined): boolean =>
+        folderId != null && !validFolderIds.has(folderId)
+
     let chatsStb: Sortable[] = []
     let folderStb: Sortable = null
 
@@ -243,11 +254,7 @@
                     {@const chatIdx = chara.chats.indexOf(chat)}
                     <button data-risu-chat-idx={chatIdx} onclick={() => {
                         if(!editMode){
-                            if(chatIdx === chara.chatPage && !$chatDeselected){
-                                $chatDeselected = true
-                            } else {
-                                changeChatTo(chatIdx)
-                            }
+                            changeChatTo(chatIdx)
                         }
                     }} class="risu-chats flex items-center text-textcolor border-solid border-0 border-darkborderc p-2 cursor-pointer rounded-md"class:bg-selected={chatIdx === chara.chatPage && !$chatDeselected}>
                         {#if editMode}
@@ -335,14 +342,10 @@
         <!-- chat without folder div -->
         <div class="risu-chat flex flex-col">
             {#each chara.chats as chat, i}
-            {#if chat.folderId == null}
+            {#if chat.folderId == null || isOrphanFolder(chat.folderId)}
             <button data-risu-chat-idx={i} onclick={() => {
                 if(!editMode){
-                    if(i === chara.chatPage && !$chatDeselected){
-                        $chatDeselected = true
-                    } else {
-                        changeChatTo(i)
-                    }
+                    changeChatTo(i)
                 }
             }}
             class="flex items-center text-textcolor border-solid border-0 border-darkborderc p-2 cursor-pointer rounded-md"
