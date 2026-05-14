@@ -46,7 +46,8 @@ export const LLMProvider = {
     Echo: 14,
     Copilot: 15,
     NanoGPT: 16,
-    OllamaCloud: 17
+    OllamaCloud: 17,
+    Vercel: 18
 } as const;
 export type LLMProvider = (typeof LLMProvider)[keyof typeof LLMProvider];
 
@@ -130,7 +131,8 @@ export const ProviderNames = new Map<LLMProvider, string>([
     [LLMProvider.Echo, 'For Developer'],
     [LLMProvider.Copilot, 'GitHub Copilot'],
     [LLMProvider.NanoGPT, 'NanoGPT'],
-    [LLMProvider.OllamaCloud, 'Ollama Cloud']
+    [LLMProvider.OllamaCloud, 'Ollama Cloud'],
+    [LLMProvider.Vercel, 'Vercel']
 ])
 
 export const OpenAIParameters:LLMParameter[] = ['temperature', 'top_p', 'frequency_penalty', 'presence_penalty']

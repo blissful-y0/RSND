@@ -6,6 +6,7 @@ import {
     LLMTokenizer,
     ProviderNames,
     OpenAIParameters,
+    GPT5Parameters,
     ClaudeParameters,
     type LLMModel
 } from './types'
@@ -16,6 +17,7 @@ import { GoogleModels } from './providers/google'
 import { CopilotModels } from './providers/copilot'
 import { NanoGPTModels } from './providers/nanogpt'
 import { toOllamaCloudDynamicModel } from './ollamaCloud'
+import { toVercelDynamicModel } from './vercel'
 import { fetchNative } from "../globalApi.svelte"
 import { DBState } from "../stores.svelte"
 import { customProviderStore, pluginV2 } from "../plugins/plugins.svelte"
@@ -23,7 +25,7 @@ import { get } from "svelte/store"
 import { customV3ProviderMetaStore } from "../plugins/apiV3/v3.svelte"
 
 // Re-export types for backwards compatibility
-export { LLMFlags, LLMProvider, LLMFormat, LLMTokenizer, ProviderNames, OpenAIParameters, ClaudeParameters }
+export { LLMFlags, LLMProvider, LLMFormat, LLMTokenizer, ProviderNames, OpenAIParameters, GPT5Parameters, ClaudeParameters }
 export type { LLMModel }
 
 function makeDeepInfraModels(id:string[]):LLMModel[]{
@@ -431,6 +433,17 @@ export const LLMModels: LLMModel[] = [
         tokenizer: LLMTokenizer.Unknown,
         recommended: true,
     },
+    {
+        id: 'vercel',
+        name: 'Vercel AI Gateway (Custom)',
+        fullName: 'Vercel AI Gateway (Custom)',
+        provider: LLMProvider.Vercel,
+        format: LLMFormat.OpenAICompatible,
+        flags: [LLMFlags.hasFullSystemPrompt, LLMFlags.hasStreaming],
+        parameters: GPT5Parameters,
+        tokenizer: LLMTokenizer.tiktokenO200Base,
+        recommended: true,
+    },
     // WebLLM
     {
         id: 'hf:::Xenova/opt-350m',
@@ -701,6 +714,27 @@ export async function registerOllamaCloudModelsDynamic() {
         }
     } catch (error) {
         console.error('Error fetching Ollama Cloud models', error)
+        throw error
+    }
+}
+
+export async function registerVercelModelsDynamic() {
+    try {
+        const { fetchVercelModels } = await import('../process/request/vercel')
+        const { models, error } = await fetchVercelModels()
+        if (error) {
+            throw new Error(error)
+        }
+
+        for (const model of models) {
+            const dynamicId = `dynamic_vercel_${model.id}`
+            const exists = LLMModels.find((entry) => entry.id === dynamicId || (entry.provider === LLMProvider.Vercel && entry.internalID === model.id))
+            if (exists) continue
+
+            LLMModels.push(toVercelDynamicModel(model))
+        }
+    } catch (error) {
+        console.error('Error fetching Vercel models', error)
         throw error
     }
 }

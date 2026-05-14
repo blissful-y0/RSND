@@ -36,6 +36,7 @@ const mocks = vi.hoisted(() => ({
     })),
     requestCopilot: vi.fn(async () => ({ type: 'success', result: 'copilot-ok' })),
     requestNanoGPT: vi.fn(async () => ({ type: 'success', result: 'nanogpt-ok' })),
+    requestVercel: vi.fn(async () => ({ type: 'success', result: 'vercel-ok' })),
     fetchNative: vi.fn(),
     applyParameters: vi.fn((data: Record<string, any>) => data),
 }))
@@ -87,6 +88,7 @@ vi.mock('../../model/modellist', () => ({
         Copilot: 'copilot',
         NanoGPT: 'nanogpt',
         OllamaCloud: 'ollama-cloud',
+        Vercel: 'vercel',
     },
 }))
 
@@ -160,6 +162,10 @@ vi.mock('./copilot', () => ({
 
 vi.mock('./nanogpt', () => ({
     requestNanoGPT: mocks.requestNanoGPT,
+}))
+
+vi.mock('./vercel', () => ({
+    requestVercel: mocks.requestVercel,
 }))
 
 vi.mock('./google', () => ({
@@ -261,6 +267,31 @@ describe('request provider routing', () => {
         expect(mocks.requestNanoGPT).toHaveBeenCalledTimes(1)
         expect(mocks.requestCopilot).not.toHaveBeenCalled()
         expect(result).toEqual({ type: 'success', result: 'nanogpt-ok' })
+    })
+
+    test('routes Vercel models through requestVercel', async () => {
+        mocks.getModelInfo.mockReturnValue({
+            id: 'dynamic_vercel_openai/gpt-5.4',
+            name: 'Vercel GPT-5.4',
+            provider: 'vercel',
+            format: 'openai-compatible',
+            flags: [],
+            parameters: ['temperature', 'top_p'],
+            internalID: 'openai/gpt-5.4',
+            tokenizer: 0,
+        })
+
+        const { requestChatDataMain } = await import('./request')
+
+        const result = await requestChatDataMain({
+            formated: [{ role: 'user', content: 'hello' }],
+            bias: {},
+        } as any, 'model' as any)
+
+        expect(mocks.requestVercel).toHaveBeenCalledTimes(1)
+        expect(mocks.requestNanoGPT).not.toHaveBeenCalled()
+        expect(mocks.requestCopilot).not.toHaveBeenCalled()
+        expect(result).toEqual({ type: 'success', result: 'vercel-ok' })
     })
 
     test('routes Ollama Cloud models through the Ollama Cloud request endpoint', async () => {
