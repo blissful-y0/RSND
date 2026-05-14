@@ -14,10 +14,12 @@ const mocks = vi.hoisted(() => ({
                 accessToken: '',
             },
             ollamaCloudKey: 'oc-test-key',
+            vercelKey: 'vc-test-key',
         },
     },
     fetchNanoGPTModels: vi.fn(),
     fetchOllamaCloudModels: vi.fn(),
+    fetchVercelModels: vi.fn(),
 }))
 
 vi.mock('../stores.svelte', () => ({
@@ -47,6 +49,10 @@ vi.mock('../process/request/nanogpt', () => ({
 
 vi.mock('../process/request/ollamaCloud', () => ({
     fetchOllamaCloudModels: mocks.fetchOllamaCloudModels,
+}))
+
+vi.mock('../process/request/vercel', () => ({
+    fetchVercelModels: mocks.fetchVercelModels,
 }))
 
 describe('registerNanoGPTModelsDynamic', () => {
@@ -120,6 +126,47 @@ describe('registerNanoGPTModelsDynamic', () => {
         const { registerOllamaCloudModelsDynamic } = await import('./modellist')
 
         await expect(registerOllamaCloudModelsDynamic()).rejects.toThrow('Failed to fetch Ollama Cloud models')
+    })
+
+    test('registers Vercel AI Gateway models dynamically', async () => {
+        mocks.fetchVercelModels.mockResolvedValue({
+            models: [
+                {
+                    id: 'openai/gpt-5.4',
+                    name: 'GPT-5.4',
+                    type: 'language',
+                    contextWindow: 400000,
+                    maxTokens: 128000,
+                    supportsVision: true,
+                    supportsReasoning: true,
+                },
+            ],
+        })
+
+        const { LLMFlags, LLMProvider, LLMModels, registerVercelModelsDynamic } = await import('./modellist')
+
+        for (let i = LLMModels.length - 1; i >= 0; i--) {
+            if (LLMModels[i].id.startsWith('dynamic_vercel_')) {
+                LLMModels.splice(i, 1)
+            }
+        }
+
+        await registerVercelModelsDynamic()
+
+        const syncedModel = LLMModels.find((model) => model.id === 'dynamic_vercel_openai/gpt-5.4')
+
+        expect(syncedModel?.provider).toBe(LLMProvider.Vercel)
+        expect(syncedModel?.internalID).toBe('openai/gpt-5.4')
+        expect(syncedModel?.flags.includes(LLMFlags.hasImageInput)).toBe(true)
+    })
+
+    test('exposes reasoning controls for the custom Vercel Gateway entry', async () => {
+        const { LLMModels } = await import('./modellist')
+
+        const model = LLMModels.find((model) => model.id === 'vercel')
+
+        expect(model?.parameters).toContain('reasoning_effort')
+        expect(model?.parameters).toContain('verbosity')
     })
 })
 
