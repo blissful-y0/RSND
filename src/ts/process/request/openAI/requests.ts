@@ -24,6 +24,28 @@ function getLocalNetworkRequestOptions(url: string, force: boolean = false): Loc
     }
 }
 
+function applyVercelGatewayOptions(body: { [key:string]: any }, modelInfo: RequestDataArgumentExtended['modelInfo'], aiModel: string) {
+    if (aiModel !== 'vercel' && modelInfo.provider !== 18) return
+
+    const db = getDatabase()
+    const modelId = String(body.model ?? '')
+    const isOpenAIModel = modelId.startsWith('openai/')
+
+    if (isOpenAIModel && db.vercelServiceTier && db.vercelServiceTier !== 'auto') {
+        body.service_tier = db.vercelServiceTier
+    }
+
+    if (isOpenAIModel && db.vercelPromptCacheRetention === '24h') {
+        body.prompt_cache_retention = '24h'
+    }
+
+    if (db.vercelGatewayCaching) {
+        body.providerOptions ??= {}
+        body.providerOptions.gateway ??= {}
+        body.providerOptions.gateway.caching = 'auto'
+    }
+}
+
 import { extractJSON, getOpenAIJSONSchema } from "../../templates/jsonSchema"
 import { applyChatTemplate } from "../../templates/chatTemplate"
 import { supportsInlayImage } from "../../files/inlays"
@@ -416,6 +438,8 @@ export async function requestOpenAI(arg:RequestDataArgumentExtended):Promise<req
             content: db.OAIPrediction
         }
     }
+
+    applyVercelGatewayOptions(body, arg.modelInfo, aiModel)
 
     if(aiModel === 'openrouter'){
         if(db.openrouterFallback){

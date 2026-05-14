@@ -928,6 +928,33 @@
             {/if}
         {/if}
 
+        <span class="text-textcolor mt-4">Vercel Service Tier</span>
+        <SegmentedControl
+            bind:value={DBState.db.vercelServiceTier}
+            options={[
+                { value: 'auto', label: 'Auto' },
+                { value: 'default', label: 'Default' },
+                { value: 'flex', label: 'Flex' },
+                { value: 'priority', label: 'Priority' }
+            ]}
+            size="sm"
+            wrap
+        />
+
+        <span class="text-textcolor mt-4">OpenAI Prompt Cache Retention</span>
+        <SegmentedControl
+            bind:value={DBState.db.vercelPromptCacheRetention}
+            options={[
+                { value: 'off', label: 'Off' },
+                { value: '24h', label: '24h' }
+            ]}
+            size="sm"
+        />
+
+        <div class="flex items-center mt-3">
+            <CheckInput bind:check={DBState.db.vercelGatewayCaching} name="Vercel Gateway Auto Caching" />
+        </div>
+
         <Accordion name="Vercel AI Gateway" styled>
             <div class="flex items-center justify-between mb-2">
                 <span class="text-textcolor text-sm">Available Models</span>
