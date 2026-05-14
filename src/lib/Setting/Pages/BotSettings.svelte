@@ -15,6 +15,7 @@
     import { PlusIcon, TrashIcon, HardDriveUploadIcon, DownloadIcon, UploadIcon, CheckCircleIcon, XCircleIcon, LoaderIcon } from "@lucide/svelte";
     import { validateCopilotToken, fetchCopilotUsage, type CopilotUsageInfo } from "src/ts/process/request/copilot";
     import { validateNanoGPTKey, fetchNanoGPTBalance, fetchNanoGPTUsage, type NanoGPTBalance, type NanoGPTUsageInfo, type NanoGPTUsageMetric } from "src/ts/process/request/nanogpt";
+    import { fetchVercelCredits, type VercelCredits } from "src/ts/process/request/vercel";
     import TextInput from "src/lib/UI/GUI/TextInput.svelte";
     import NumberInput from "src/lib/UI/GUI/NumberInput.svelte";
     import SliderInput from "src/lib/UI/GUI/SliderInput.svelte";
@@ -27,6 +28,7 @@
     import { getOpenRouterModels, toModelGridItem as orToGridItem } from "src/ts/model/openrouter";
     import { getNanoGPTModels, getNanoGPTSubscriptionModels, toModelGridItem as ngToGridItem } from "src/ts/model/nanogpt";
     import { getOllamaCloudModels, toModelGridItem as ocToGridItem } from "src/ts/model/ollamaCloud";
+    import { getVercelModels, toModelGridItem as vcToGridItem } from "src/ts/model/vercel";
     import ModelGrid from "src/lib/UI/ModelGrid.svelte";
     import NanoGPTDashboard from "src/lib/UI/NanoGPTDashboard.svelte";
     import NanoGPTProviderPicker from "src/lib/UI/NanoGPTProviderPicker.svelte";
@@ -38,7 +40,7 @@
     import PromptSettings from "./PromptSettings.svelte";
     import { openPresetList } from "src/ts/stores.svelte";
     import { selectSingleFile } from "src/ts/util";
-    import { getModelInfo, LLMFlags, LLMFormat, LLMProvider, LLMModels, registerCopilotModelsDynamic, registerNanoGPTModelsDynamic, registerOllamaCloudModelsDynamic } from "src/ts/model/modellist";
+    import { getModelInfo, LLMFlags, LLMFormat, LLMProvider, LLMModels, registerCopilotModelsDynamic, registerNanoGPTModelsDynamic, registerOllamaCloudModelsDynamic, registerVercelModelsDynamic } from "src/ts/model/modellist";
     import RegexList from "src/lib/SideBars/Scripts/RegexList.svelte";
     import SettingRenderer from "../SettingRenderer.svelte";
     import { allBasicParameterItems } from "src/ts/setting/botSettingsParamsData";
@@ -121,6 +123,7 @@
     let copilotModelSyncInFlight = false
     let nanogptModelSyncInFlight = false
     let ollamaCloudModelSyncInFlight = false
+    let vercelModelSyncInFlight = false
 
     function ensureCopilotConfig() {
         if (!DBState.db.copilot) {
@@ -214,6 +217,14 @@
     let ollamaCloudModels = $state<Awaited<ReturnType<typeof getOllamaCloudModels>>>([])
     let ollamaCloudModelsLoading = $state(false)
     let ollamaCloudLoadedKey = $state('')
+    let vercelModelSyncStatus: 'idle'|'loading'|'done'|'error' = $state('idle')
+    let vercelModelSyncCount = $state(0)
+    let vercelCredits: VercelCredits | null = $state(null)
+    let vercelCreditsLoading = $state(false)
+    let vercelCreditsError = $state('')
+    let vercelModels = $state<Awaited<ReturnType<typeof getVercelModels>>>([])
+    let vercelModelsLoading = $state(false)
+    let vercelModelsLoaded = $state(false)
 
     async function verifyNanoGPTKey(index: number) {
         const key = ensureNanoGPTConfig().apiKeys[index]
@@ -276,6 +287,49 @@
         }
     }
 
+    async function syncVercelModels() {
+        if (vercelModelSyncStatus === 'loading' || vercelModelSyncInFlight) return
+        vercelModelSyncStatus = 'loading'
+        vercelModelSyncInFlight = true
+        try {
+            await registerVercelModelsDynamic()
+            vercelModelSyncCount = LLMModels.filter((model) => model.provider === LLMProvider.Vercel).length
+            vercelModelSyncStatus = 'done'
+        }
+        catch {
+            vercelModelSyncStatus = 'error'
+        }
+        finally {
+            vercelModelSyncInFlight = false
+        }
+    }
+
+    async function loadVercelCredits() {
+        if (vercelCreditsLoading || !DBState.db.vercelKey) return
+        vercelCreditsLoading = true
+        vercelCreditsError = ''
+        const result = await fetchVercelCredits(DBState.db.vercelKey)
+        vercelCredits = result.credits
+        vercelCreditsError = result.error ?? ''
+        vercelCreditsLoading = false
+    }
+
+    async function loadVercelModels() {
+        if (vercelModelsLoading) return
+        vercelModelsLoading = true
+        try {
+            vercelModels = await getVercelModels()
+            vercelModelsLoaded = true
+        }
+        catch {
+            vercelModels = []
+            vercelModelsLoaded = true
+        }
+        finally {
+            vercelModelsLoading = false
+        }
+    }
+
     async function loadOllamaCloudModels() {
         if (ollamaCloudModelsLoading) return
         const key = DBState.db.ollamaCloudKey
@@ -306,6 +360,15 @@
         }
     })
 
+    $effect(() => {
+        const shouldLoad =
+            (modelInfo.provider === LLMProvider.Vercel || subModelInfo.provider === LLMProvider.Vercel) &&
+            vercelInputMode === 'list'
+        if (shouldLoad && !vercelModelsLoaded) {
+            loadVercelModels()
+        }
+    })
+
     function formatUsageCount(value: number | null) {
         if (value === null) return 'No limit'
         return new Intl.NumberFormat().format(value)
@@ -327,6 +390,7 @@
     }
     let nanogptInputMode = $state<'list' | 'manual'>(DBState.db.nanogptRequestModel && !DBState.db.nanogptRequestModelName ? 'manual' : 'list')
     let ollamaCloudInputMode = $state<'list' | 'manual'>(DBState.db.ollamaCloudModel && !DBState.db.ollamaCloudModelName ? 'manual' : 'list')
+    let vercelInputMode = $state<'list' | 'manual'>(DBState.db.vercelRequestModel && !DBState.db.vercelRequestModelName ? 'manual' : 'list')
     // svelte-ignore state_referenced_locally
     let prevNanogptInputMode = nanogptInputMode;
     $effect(() => {
@@ -343,6 +407,15 @@
             DBState.db.ollamaCloudModel = '';
             DBState.db.ollamaCloudModelName = '';
             prevOllamaCloudInputMode = ollamaCloudInputMode;
+        }
+    });
+    // svelte-ignore state_referenced_locally
+    let prevVercelInputMode = vercelInputMode;
+    $effect(() => {
+        if (vercelInputMode !== prevVercelInputMode) {
+            DBState.db.vercelRequestModel = '';
+            DBState.db.vercelRequestModelName = '';
+            prevVercelInputMode = vercelInputMode;
         }
     });
 </script>
@@ -809,6 +882,64 @@
                 <span class="text-green-500 text-xs mt-1 block">{ollamaCloudModelSyncCount} models available. Reload model list to see new models.</span>
             {:else if ollamaCloudModelSyncStatus === 'error'}
                 <span class="text-draculared text-xs mt-1 block">Failed to sync models.</span>
+            {/if}
+        </Accordion>
+    {/if}
+    {#if modelInfo.provider === LLMProvider.Vercel || subModelInfo.provider === LLMProvider.Vercel}
+        <span class="text-textcolor mt-4">Vercel API Key</span>
+        <TextInput hideText={DBState.db.hideApiKey} marginBottom={false} size={"sm"} bind:value={DBState.db.vercelKey} />
+        <div class="mt-2 flex items-center gap-3 text-xs">
+            <button class="text-textcolor2 hover:text-green-500 cursor-pointer" onclick={loadVercelCredits}>
+                {vercelCreditsLoading ? 'Loading credits...' : 'Load credits'}
+            </button>
+            {#if vercelCredits}
+                <span class="text-textcolor2">Balance: <span class="text-textcolor">${vercelCredits.balance}</span> · Used: <span class="text-textcolor">${vercelCredits.totalUsed}</span></span>
+            {:else if vercelCreditsError}
+                <span class="text-draculared">{vercelCreditsError}</span>
+            {/if}
+        </div>
+
+        {#if DBState.db.aiModel === 'vercel' || DBState.db.subModel === 'vercel'}
+            <span class="text-textcolor mt-4">Vercel Gateway Model</span>
+            <SegmentedControl
+                bind:value={vercelInputMode}
+                options={[
+                    { value: 'list', label: (language as any).nanoGPTSelectFromList || 'Select from List' },
+                    { value: 'manual', label: (language as any).nanoGPTManualInput || 'Manual Input' }
+                ]}
+                size="md"
+            />
+
+            {#if vercelInputMode === 'manual'}
+                <TextInput marginBottom={false} size={"sm"} bind:value={DBState.db.vercelRequestModel} placeholder="openai/gpt-5.4" oninput={() => DBState.db.vercelRequestModelName = ''}/>
+            {:else}
+                <ModelGrid
+                    bind:value={DBState.db.vercelRequestModel}
+                    loading={vercelModelsLoading}
+                    items={(vercelModels ?? []).map(vcToGridItem)}
+                    pinnedItems={DBState.db.vercelRequestModel && !vercelModels.some((model) => model.id === DBState.db.vercelRequestModel) ? [{
+                        id: DBState.db.vercelRequestModel,
+                        displayName: DBState.db.vercelRequestModelName || DBState.db.vercelRequestModel,
+                        providerName: 'Selected',
+                    }] : []}
+                    selectedLabelOverride={DBState.db.vercelRequestModelName || DBState.db.vercelRequestModel || undefined}
+                    onselect={(_id, name) => { DBState.db.vercelRequestModelName = name }}
+                />
+            {/if}
+        {/if}
+
+        <Accordion name="Vercel AI Gateway" styled>
+            <div class="flex items-center justify-between mb-2">
+                <span class="text-textcolor text-sm">Available Models</span>
+                <button class="text-xs text-textcolor2 hover:text-green-500 cursor-pointer" onclick={syncVercelModels}>
+                    {vercelModelSyncStatus === 'loading' ? 'Syncing...' : 'Sync Models'}
+                </button>
+            </div>
+            <span class="text-xs text-textcolor2 mt-1 block">Fetches language models from Vercel AI Gateway. Credits are loaded separately through the Gateway credits endpoint.</span>
+            {#if vercelModelSyncStatus === 'done'}
+                <span class="text-green-500 text-xs mt-1 block">{vercelModelSyncCount} models available. Reload model list to see new models.</span>
+            {:else if vercelModelSyncStatus === 'error'}
+                <span class="text-draculared text-xs mt-1 block">Failed to sync Vercel models.</span>
             {/if}
         </Accordion>
     {/if}

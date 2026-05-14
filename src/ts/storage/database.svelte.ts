@@ -461,6 +461,9 @@ export function setDatabase(data:Database){
     data.ollamaCloudModelName ??= ''
     data.ollamaCloudThink ??= 'auto'
     data.ollamaCloudOptionsJson ??= ''
+    data.vercelKey ??= ''
+    data.vercelRequestModel ??= ''
+    data.vercelRequestModelName ??= ''
     data.autoContinueChat ??= false
     data.autoContinueMinTokens ??= 0
     data.repetition_penalty ??= 1
@@ -1130,6 +1133,9 @@ export interface Database{
     ollamaCloudModelName:string
     ollamaCloudThink:'auto' | 'off' | 'on' | 'low' | 'medium' | 'high' | 'max'
     ollamaCloudOptionsJson:string
+    vercelKey:string
+    vercelRequestModel:string
+    vercelRequestModelName:string
     autoContinueChat:boolean
     autoContinueMinTokens:number
     removeIncompleteResponse:boolean
