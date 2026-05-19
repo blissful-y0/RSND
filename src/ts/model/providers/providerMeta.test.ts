@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'vitest'
 
 import { CopilotModels } from './copilot'
+import { GoogleModels } from './google'
 import { NanoGPTModels } from './nanogpt'
 import { OpenAIModels } from './openai'
 import { LLMFlags, LLMFormat, LLMTokenizer } from '../types'
@@ -16,6 +17,22 @@ describe('provider model metadata', () => {
         expect(recommendedIds.has('copilot-gpt-5.1')).toBe(true)
         expect(recommendedIds.has('copilot-gemini-3-flash-preview')).toBe(true)
         expect(recommendedIds.has('copilot-gemini-3.1-pro-preview')).toBe(true)
+    })
+
+    test('registers Gemini 3.5 Flash for Google provider', () => {
+        const model = GoogleModels.find((model) => model.id === 'gemini-3.5-flash')
+
+        expect(model).toMatchObject({
+            name: 'Gemini Flash 3.5',
+            internalID: 'gemini-3.5-flash',
+            format: LLMFormat.GoogleCloud,
+            tokenizer: LLMTokenizer.GoogleCloud,
+            recommended: true,
+        })
+        expect(model?.parameters).toContain('thinking_tokens')
+        expect(model?.flags).toContain(LLMFlags.hasStreaming)
+        expect(model?.flags).toContain(LLMFlags.geminiThinking)
+        expect(model?.flags).toContain(LLMFlags.hasImageInput)
     })
 
     test('registers upcoming OpenAI GPT-5.5 aliases', () => {
