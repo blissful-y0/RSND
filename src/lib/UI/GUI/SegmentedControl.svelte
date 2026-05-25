@@ -12,6 +12,7 @@
         className?: string;
         wrap?: boolean;
         fullWidth?: boolean;
+        onChange?: (value: string | number) => void;
     }
 
     let {
@@ -21,6 +22,7 @@
         className = '',
         wrap = false,
         fullWidth = false,
+        onChange,
     }: Props = $props();
 
     let containerRef: HTMLDivElement | undefined = $state();
@@ -63,6 +65,7 @@
 
     function handleSelect(opt: SegmentOption) {
         value = opt.value;
+        onChange?.(opt.value);
     }
 </script>
 

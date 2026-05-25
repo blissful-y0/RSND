@@ -94,8 +94,8 @@ describe('botSettingsParamsData reasoning/verbosity controls', () => {
         expect(minimal?.condition?.({
             db: {},
             modelInfo: {
-                id: 'gemini-3.1-pro-preview',
-                internalID: 'gemini-3.1-pro-preview',
+                id: 'gemini-3.5-flash',
+                internalID: 'gemini-3.5-flash',
                 flags: [LLMFlags.geminiThinking],
                 parameters: ['thinking_tokens'],
             },
@@ -103,6 +103,41 @@ describe('botSettingsParamsData reasoning/verbosity controls', () => {
                 flags: [],
                 parameters: [],
             },
-        } as any)).toBe(false)
+        } as any)).toBe(true)
+
+        const medium = geminiThinkingLevel?.options?.segmentOptions?.find((option) => option.value === 'medium')
+        expect(medium?.condition?.({
+            db: {},
+            modelInfo: {
+                id: 'gemini-3.5-flash',
+                internalID: 'gemini-3.5-flash',
+                flags: [LLMFlags.geminiThinking],
+                parameters: ['thinking_tokens'],
+            },
+            subModelInfo: {
+                flags: [],
+                parameters: [],
+            },
+        } as any)).toBe(true)
+    })
+
+    test('shows low as the default Gemini thinking level when tokens are unset', () => {
+        const geminiThinkingLevel = modelSpecificParameterItems.find(
+            (item) => item.id === 'params.geminiThinkingLevel',
+        )
+
+        expect(geminiThinkingLevel?.getValue?.({} as any, {
+            db: {},
+            modelInfo: {
+                id: 'gemini-3.5-flash-preview',
+                internalID: 'gemini-3.5-flash-preview',
+                flags: [LLMFlags.geminiThinking],
+                parameters: ['thinking_tokens'],
+            },
+            subModelInfo: {
+                flags: [],
+                parameters: [],
+            },
+        } as any)).toBe('low')
     })
 })

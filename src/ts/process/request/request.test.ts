@@ -294,6 +294,64 @@ describe('request provider routing', () => {
         expect(result).toEqual({ type: 'success', result: 'vercel-ok' })
     })
 
+    test('uses auxiliary max response tokens for submodel requests', async () => {
+        mocks.getDatabase.mockReturnValue({
+            aiModel: 'main-model',
+            subModel: 'test-model',
+            seperateModelsForAxModels: false,
+            seperateModels: {},
+            seperateParametersEnabled: true,
+            seperateParametersByModel: false,
+            seperateParameters: {
+                memory: {},
+                emotion: {},
+                translate: {},
+                otherAx: {
+                    maxResponse: 128,
+                },
+                overrides: {},
+            },
+            maxResponse: 512,
+            useStreaming: false,
+            requestRetrys: 0,
+            antiServerOverloads: false,
+            fallbackWhenBlankResponse: false,
+            systemContentReplacement: '',
+            systemRoleReplacement: 'system',
+            customModels: [],
+            temperature: 80,
+            genTime: 1,
+            extractJson: '',
+            customProxyRequestModel: '',
+            customAPIFormat: 0,
+            forceReplaceUrl: '',
+            proxyKey: '',
+            openAIKey: '',
+            modelTools: [],
+        } as any)
+        mocks.getModelInfo.mockReturnValue({
+            id: 'copilot-gpt-5.4',
+            name: 'GitHub Copilot GPT-5.4',
+            provider: 'copilot',
+            format: 'responses',
+            flags: [],
+            parameters: ['temperature', 'top_p'],
+            internalID: 'gpt-5.4',
+            tokenizer: 0,
+        })
+
+        const { requestChatDataMain } = await import('./request')
+
+        await requestChatDataMain({
+            formated: [{ role: 'user', content: 'hello' }],
+            bias: {},
+        } as any, 'submodel' as any)
+
+        expect(mocks.requestCopilot).toHaveBeenCalledWith(expect.objectContaining({
+            maxTokens: 128,
+        }))
+    })
+
     test('routes Ollama Cloud models through the Ollama Cloud request endpoint', async () => {
         mocks.getModelInfo.mockReturnValue({
             id: 'dynamic_ollama_cloud_gpt-oss:120b',

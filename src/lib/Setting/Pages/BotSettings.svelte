@@ -45,6 +45,7 @@
     import SettingRenderer from "../SettingRenderer.svelte";
     import { allBasicParameterItems } from "src/ts/setting/botSettingsParamsData";
     import SeparateParametersSection from "./SeparateParametersSection.svelte";
+    import GeminiThinkingSeparateParams from "./GeminiThinkingSeparateParams.svelte";
     import AuxModelSelectors from './Model/AuxModelSelectors.svelte'
     import { SUBMODEL_PARAMETER_LOCATION_HINT } from "src/ts/setting/auxModelCopy";
     
@@ -118,6 +119,10 @@
     let submenu = $state(0)
     let modelInfo = $derived(getModelInfo(DBState.db.aiModel))
     let subModelInfo = $derived(getModelInfo(DBState.db.subModel))
+
+    function enableAuxParameters() {
+        DBState.db.seperateParametersEnabled = true
+    }
     const dbAny = DBState.db as any
 
     let copilotModelSyncInFlight = false
@@ -433,6 +438,25 @@
 
     <span class="text-textcolor mt-2">{language.submodel} <Help key="submodel"/></span>
     <ModelList bind:value={DBState.db.subModel}/>
+    <div class="mt-3">
+        <GeminiThinkingSeparateParams
+            bind:value={DBState.db.seperateParameters.otherAx}
+            modelInfo={subModelInfo}
+            onChange={enableAuxParameters}
+        />
+        <span class="text-textcolor">Submodel Max Response Tokens</span>
+        <SliderInput
+            className="mt-2"
+            min={1}
+            max={64000}
+            marginBottom
+            step={50}
+            fixed={0}
+            bind:value={DBState.db.seperateParameters.otherAx.maxResponse}
+            disableable
+            onchange={enableAuxParameters}
+        />
+    </div>
     <p class="text-xs text-textcolor2 mt-1 mb-2">{SUBMODEL_PARAMETER_LOCATION_HINT}</p>
 
     {#if modelInfo.provider === LLMProvider.GoogleCloud || subModelInfo.provider === LLMProvider.GoogleCloud}

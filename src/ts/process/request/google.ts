@@ -11,6 +11,7 @@ import { addFetchLog } from "src/ts/globalApi.svelte"
 import type { RequestDataArgumentExtended, requestDataResponse, StreamResponseChunk } from './request'
 import { applyAdditionalParameters, applyParameters, getAdditionalParameters, type LLMParameter } from './shared'
 import { bodyIntercepterStore } from "src/ts/stores.svelte"
+import { geminiThinkingTokensToApiLevel } from "src/ts/model/geminiThinking"
 
 type GeminiFunctionCall = {
     id?: string;
@@ -380,25 +381,8 @@ export async function requestGoogleCloudVertex(arg:RequestDataArgumentExtended):
         // Gemini 3 models use `thinking_level` (via thinkingConfig.thinkingLevel) instead of `thinking_budget`.
         // Keep UI/param name 'thinking_tokens' but translate it here for compatibility.
         if (internalId && /^gemini-3(?:[.-]|$)/.test(internalId)) {
-            const budgetNum = typeof thinkingBudget === 'number' ? thinkingBudget : Number(thinkingBudget)
-
-            // Conservative mapping: keep levels coarse to avoid model-specific strict validation.
-            // - gemini-3-flash-preview: LOW/MEDIUM/HIGH
-            // - gemini-3.1-pro-preview: LOW/MEDIUM/HIGH
-            // - gemini-3-pro* (incl. image): LOW/HIGH
-            let thinkingLevel: 'MINIMAL' | 'LOW' | 'MEDIUM' | 'HIGH' = 'HIGH'
-            if (internalId === 'gemini-3-flash-preview' || internalId.startsWith('gemini-3.1-')) {
-                if (internalId === 'gemini-3-flash-preview' && Number.isFinite(budgetNum) && budgetNum <= 0) thinkingLevel = 'MINIMAL'
-                else if (!Number.isFinite(budgetNum) || budgetNum >= 16384) thinkingLevel = 'HIGH'
-                else if (budgetNum >= 4096) thinkingLevel = 'MEDIUM'
-                else thinkingLevel = 'LOW'
-            } else {
-                if (!Number.isFinite(budgetNum) || budgetNum >= 8192) thinkingLevel = 'HIGH'
-                else thinkingLevel = 'LOW'
-            }
-
             body.generationConfig.thinkingConfig = {
-                "thinkingLevel": thinkingLevel,
+                "thinkingLevel": geminiThinkingTokensToApiLevel(thinkingBudget, { modelInfo: arg.modelInfo }),
                 "includeThoughts": true,
             }
         } else {

@@ -27,6 +27,23 @@ import { withTrackedRequestActivity } from './requestActivity';
 import { applyParameters, type ModelModeExtended } from './shared';
 import type { ProxyPolicy } from 'src/ts/network/proxyPolicy';
 
+function getSeparateMaxResponse(modelMode: ModelModeExtended, modelId: string): number | undefined {
+    const db = getDatabase()
+    if (!db.seperateParametersEnabled || (modelMode === 'model' && !db.seperateParametersByModel)) {
+        return undefined
+    }
+
+    const sepParams = db.seperateParametersByModel
+        ? db.seperateParameters.overrides?.[modelId]
+        : modelMode === 'submodel'
+            ? db.seperateParameters.otherAx
+            : db.seperateParameters[modelMode]
+    const maxResponse = sepParams?.maxResponse
+    return typeof maxResponse === 'number' && Number.isFinite(maxResponse) && maxResponse > 0
+        ? maxResponse
+        : undefined
+}
+
 export type ToolCall = {
     name: string;
     arguments: string;
@@ -368,7 +385,7 @@ export async function requestChatDataMain(arg:requestDataArgument, model:ModelMo
     }
 
     targ.formated = safeStructuredClone(arg.formated)
-    targ.maxTokens = arg.maxTokens ??db.maxResponse
+    targ.maxTokens = arg.maxTokens ?? getSeparateMaxResponse(model, targ.aiModel) ?? db.maxResponse
     targ.temperature = arg.temperature ?? (db.temperature / 100)
     targ.bias = arg.bias
     targ.currentChar = arg.currentChar

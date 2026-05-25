@@ -15,46 +15,14 @@ import {
     uiVerbosityToDb,
     verbositySelectOptions,
 } from '../model/reasoningVerbosity';
-
-type GeminiThinkingLevel = 'minimal' | 'low' | 'medium' | 'high';
-
-function getModelId(ctx: { modelInfo: { id?: string; internalID?: string } }): string {
-    return ctx.modelInfo.internalID ?? ctx.modelInfo.id ?? '';
-}
-
-function isGeminiThinkingLevelModel(ctx: { modelInfo: { id?: string; internalID?: string; flags: LLMFlags[] } }): boolean {
-    return ctx.modelInfo.flags.includes(LLMFlags.geminiThinking) && /^gemini-3(?:[.-]|$)/.test(getModelId(ctx));
-}
-
-function supportsGeminiMinimalThinking(ctx: { modelInfo: { id?: string; internalID?: string } }): boolean {
-    return getModelId(ctx) === 'gemini-3-flash-preview';
-}
-
-function supportsGeminiMediumThinking(ctx: { modelInfo: { id?: string; internalID?: string } }): boolean {
-    const modelId = getModelId(ctx);
-    return modelId === 'gemini-3-flash-preview' || modelId.startsWith('gemini-3.1-');
-}
-
-function geminiThinkingTokensToLevel(tokens: number | null | undefined, ctx: { modelInfo: { id?: string; internalID?: string } }): GeminiThinkingLevel {
-    const budget = typeof tokens === 'number' ? tokens : 16384;
-    if (supportsGeminiMinimalThinking(ctx) && budget <= 0) return 'minimal';
-    if (budget >= 16384) return 'high';
-    if (supportsGeminiMediumThinking(ctx) && budget >= 4096) return 'medium';
-    return 'low';
-}
-
-function geminiThinkingLevelToTokens(level: GeminiThinkingLevel): number {
-    switch (level) {
-        case 'minimal':
-            return 0;
-        case 'low':
-            return 1024;
-        case 'medium':
-            return 4096;
-        case 'high':
-            return 16384;
-    }
-}
+import {
+    geminiThinkingLevelToTokens,
+    geminiThinkingTokensToLevel,
+    isGeminiThinkingLevelModel,
+    supportsGeminiMediumThinking,
+    supportsGeminiMinimalThinking,
+    type GeminiThinkingLevel,
+} from '../model/geminiThinking';
 
 /**
  * Basic parameter settings that are always visible
