@@ -156,4 +156,122 @@ describe('requestGoogleCloudVertex Gemini thinking config', () => {
         const parsed = JSON.parse(result.result)
         expect(parsed.body.generationConfig.thinkingConfig.thinkingLevel).toBe('MINIMAL')
     })
+
+    test('defaults unset auxiliary Gemini 3.5 Flash thinking tokens to low thinkingLevel', async () => {
+        mocks.getDatabase.mockReturnValue({
+            google: {
+                accessToken: 'test-key',
+                projectId: '',
+            },
+            vertexRegion: 'us-central1',
+            vertexAccessTokenExpires: 0,
+            gptVisionQuality: 'low',
+            jsonSchemaEnabled: false,
+            saveSignatures: false,
+            temperature: 80,
+            top_p: 1,
+            top_k: 0,
+            frequencyPenalty: 70,
+            PresensePenalty: 70,
+            thinkingTokens: 16384,
+            seperateParametersEnabled: true,
+            seperateParameters: {
+                memory: {},
+                emotion: {},
+                translate: {},
+                otherAx: {},
+                overrides: {},
+            },
+            customModels: [],
+        } as any)
+        const { requestGoogleCloudVertex } = await import('./google')
+
+        const result = await requestGoogleCloudVertex({
+            formated: [{ role: 'user', content: 'hello' }],
+            maxTokens: 512,
+            mode: 'submodel',
+            useStreaming: false,
+            customURL: 'https://example.test/v1beta/',
+            previewBody: true,
+            modelInfo: {
+                id: 'gemini-3.5-flash',
+                internalID: 'gemini-3.5-flash',
+                name: 'Gemini Flash 3.5 Preview',
+                provider: LLMProvider.GoogleCloud,
+                format: LLMFormat.GoogleCloud,
+                flags: [
+                    LLMFlags.geminiThinking,
+                    LLMFlags.hasStreaming,
+                    LLMFlags.requiresAlternateRole,
+                ],
+                parameters: ['thinking_tokens', 'temperature', 'top_p', 'top_k'],
+                tokenizer: LLMTokenizer.GoogleCloud,
+            },
+        } as any)
+
+        if (result.type !== 'success' || typeof result.result !== 'string') {
+            throw new Error(`Expected preview JSON, got ${result.type}`)
+        }
+        const parsed = JSON.parse(result.result)
+        expect(parsed.body.generationConfig.thinkingConfig.thinkingLevel).toBe('LOW')
+    })
+
+    test('serializes Gemini 3.5 Flash thinking tokens as all supported thinking levels', async () => {
+        const { requestGoogleCloudVertex } = await import('./google')
+
+        async function getThinkingLevel(thinkingTokens: number) {
+            mocks.getDatabase.mockReturnValue({
+                google: {
+                    accessToken: 'test-key',
+                    projectId: '',
+                },
+                vertexRegion: 'us-central1',
+                vertexAccessTokenExpires: 0,
+                gptVisionQuality: 'low',
+                jsonSchemaEnabled: false,
+                saveSignatures: false,
+                temperature: 80,
+                top_p: 1,
+                top_k: 0,
+                frequencyPenalty: 70,
+                PresensePenalty: 70,
+                thinkingTokens,
+                seperateParametersEnabled: false,
+                customModels: [],
+            })
+
+            const result = await requestGoogleCloudVertex({
+                formated: [{ role: 'user', content: 'hello' }],
+                maxTokens: 512,
+                mode: 'model',
+                useStreaming: false,
+                customURL: 'https://example.test/v1beta/',
+                previewBody: true,
+                modelInfo: {
+                    id: 'gemini-3.5-flash',
+                    internalID: 'gemini-3.5-flash',
+                    name: 'Gemini Flash 3.5',
+                    provider: LLMProvider.GoogleCloud,
+                    format: LLMFormat.GoogleCloud,
+                    flags: [
+                        LLMFlags.geminiThinking,
+                        LLMFlags.hasStreaming,
+                        LLMFlags.requiresAlternateRole,
+                    ],
+                    parameters: ['thinking_tokens', 'temperature', 'top_p', 'top_k'],
+                    tokenizer: LLMTokenizer.GoogleCloud,
+                },
+            } as any)
+
+            if (result.type !== 'success' || typeof result.result !== 'string') {
+                throw new Error(`Expected preview JSON, got ${result.type}`)
+            }
+            return JSON.parse(result.result).body.generationConfig.thinkingConfig.thinkingLevel
+        }
+
+        expect(await getThinkingLevel(0)).toBe('MINIMAL')
+        expect(await getThinkingLevel(1024)).toBe('LOW')
+        expect(await getThinkingLevel(4096)).toBe('MEDIUM')
+        expect(await getThinkingLevel(16384)).toBe('HIGH')
+    })
 })

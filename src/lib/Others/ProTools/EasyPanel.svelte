@@ -13,6 +13,7 @@
     import { XIcon } from "@lucide/svelte";
     import TextInput from "src/lib/UI/GUI/TextInput.svelte";
     import CustomModelsSettings from "src/lib/Setting/Pages/Advanced/CustomModelsSettings.svelte";
+    import { getModelInfo } from "src/ts/model/modellist";
     import {
         AUX_PARAMETER_HINT,
         AUX_PARAMETER_SECTION_LABEL,
@@ -22,6 +23,12 @@
     let selectedOption = $state('models');
     let selectedParameterOption = $state('memory')
     let parameterModelSelection = $state('')
+    const auxModelInfo = $derived(getModelInfo(
+        DBState.db.seperateModelsForAxModels && DBState.db.seperateModels.otherAx
+            ? DBState.db.seperateModels.otherAx
+            : DBState.db.subModel
+    ))
+    const selectedParameterModelInfo = $derived(parameterModelSelection ? getModelInfo(parameterModelSelection) : undefined)
 
     let hasEPRequirements = $derived.by(() => {
         return  DBState.db.seperateParametersEnabled &&
@@ -119,7 +126,12 @@
                 }}/>
 
                 {#if parameterModelSelection !== ''}
-                    <AllSeperateParameters bind:value={DBState.db.seperateParameters.overrides[parameterModelSelection]} withImportExport />
+                    <AllSeperateParameters
+                        bind:value={DBState.db.seperateParameters.overrides[parameterModelSelection]}
+                        modelInfo={selectedParameterModelInfo}
+                        showAuxControls
+                        withImportExport
+                    />
 
                 {/if}
             {:else}
@@ -142,7 +154,12 @@
                         <AllSeperateParameters bind:value={DBState.db.seperateParameters.emotion} withImportExport />
                     {:else if selectedParameterOption === 'otherAx'}
                         <p class="text-xs text-textcolor2 mb-3">{AUX_PARAMETER_HINT}</p>
-                        <AllSeperateParameters bind:value={DBState.db.seperateParameters.otherAx} withImportExport />
+                        <AllSeperateParameters
+                            bind:value={DBState.db.seperateParameters.otherAx}
+                            modelInfo={auxModelInfo}
+                            showAuxControls
+                            withImportExport
+                        />
                     {/if}
                 </div>
 

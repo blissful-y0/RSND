@@ -1392,6 +1392,7 @@ export interface Database{
 }
 
 export interface SeparateParameters{
+    maxResponse?:number
     temperature?:number
     top_k?:number
     repetition_penalty?:number

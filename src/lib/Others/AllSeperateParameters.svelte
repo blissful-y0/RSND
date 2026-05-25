@@ -3,7 +3,9 @@
     import { language } from "src/lang";
     import SliderInput from "../UI/GUI/SliderInput.svelte";
     import ClaudeThinkingSeparateParams from "../Setting/Pages/ClaudeThinkingSeparateParams.svelte";
+    import GeminiThinkingSeparateParams from "../Setting/Pages/GeminiThinkingSeparateParams.svelte";
     import type { SeparateParameters } from "src/ts/storage/database.svelte";
+    import type { LLMModel } from "src/ts/model/types";
     import { downloadFile } from "src/ts/globalApi.svelte";
     import { FileDownIcon, FileUpIcon } from "@lucide/svelte";
     import { selectSingleFile } from "src/ts/util";
@@ -22,10 +24,14 @@
 
     let {
         value = $bindable(),
-        withImportExport = false
+        withImportExport = false,
+        modelInfo,
+        showAuxControls = false,
     }:{
         value: SeparateParameters
         withImportExport?: boolean
+        modelInfo?: LLMModel
+        showAuxControls?: boolean
     } = $props()
 
     let reasoningEffortValue: ReasoningEffortUiValue = $state(
@@ -58,6 +64,11 @@
     })
 </script>
 
+{#if showAuxControls}
+    <span class="text-textcolor">Max Response Tokens</span>
+    <SliderInput className="mt-2" min={1} max={64000} marginBottom step={50} fixed={0} bind:value={value.maxResponse} disableable/>
+    <GeminiThinkingSeparateParams bind:value={value} {modelInfo} />
+{/if}
 <span class="text-textcolor">{language.temperature} <Help key="tempature"/></span>
 <SliderInput className="mt-2" min={0} max={200} marginBottom bind:value={value.temperature} multiple={0.01} fixed={2} disableable/>
 <span class="text-textcolor">Top K</span>
