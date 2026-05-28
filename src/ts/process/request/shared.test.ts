@@ -84,7 +84,7 @@ describe('request shared parameter helpers', () => {
         })
     })
 
-    test('omits nested response API reasoning field when effort is none', async () => {
+    test('passes none as the nested response API reasoning effort by default', async () => {
         mocks.getDatabase.mockReturnValue({
             reasoningEffort: -1,
             seperateParametersEnabled: false,
@@ -96,7 +96,67 @@ describe('request shared parameter helpers', () => {
             ['reasoning_effort'],
             { reasoning_effort: 'reasoning.effort' },
             'model',
-            { modelId: 'copilot-gpt-5.5' },
+            { modelId: 'gpt-5.5' },
+        )
+
+        expect(body).toEqual({
+            reasoning: {
+                effort: 'none',
+            },
+        })
+    })
+
+    test('omits nested response API reasoning effort none when requested', async () => {
+        mocks.getDatabase.mockReturnValue({
+            reasoningEffort: -1,
+            seperateParametersEnabled: false,
+        })
+        const { applyParameters } = await import('./shared')
+
+        const body = applyParameters(
+            {},
+            ['reasoning_effort'],
+            { reasoning_effort: 'reasoning.effort' },
+            'model',
+            { modelId: 'copilot-gpt-5.5', omitNoneReasoningEffort: true },
+        )
+
+        expect(body).toEqual({})
+    })
+
+    test('passes none as top-level OpenAI-compatible reasoning effort by default', async () => {
+        mocks.getDatabase.mockReturnValue({
+            reasoningEffort: -1,
+            seperateParametersEnabled: false,
+        })
+        const { applyParameters } = await import('./shared')
+
+        const body = applyParameters(
+            {},
+            ['reasoning_effort'],
+            {},
+            'model',
+            { modelId: 'gpt-5.5' },
+        )
+
+        expect(body).toEqual({
+            reasoning_effort: 'none',
+        })
+    })
+
+    test('omits top-level OpenAI-compatible reasoning effort none when requested', async () => {
+        mocks.getDatabase.mockReturnValue({
+            reasoningEffort: -1,
+            seperateParametersEnabled: false,
+        })
+        const { applyParameters } = await import('./shared')
+
+        const body = applyParameters(
+            {},
+            ['reasoning_effort'],
+            {},
+            'model',
+            { modelId: 'copilot-gpt-5.5', omitNoneReasoningEffort: true },
         )
 
         expect(body).toEqual({})

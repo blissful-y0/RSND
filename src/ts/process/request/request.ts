@@ -90,6 +90,7 @@ export interface RequestDataArgumentExtended extends requestDataArgument{
     saveSignatures?:boolean
     extraHeaders?:Record<string, string>
     proxyPolicy?: ProxyPolicy
+    omitNoneReasoningEffort?: boolean
 }
 
 export type requestDataResponse = {

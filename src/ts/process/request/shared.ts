@@ -158,6 +158,7 @@ export function applyParameters(
     modelMode: ModelModeExtended,
     arg: {
         ignoreTopKIfZero?: boolean
+        omitNoneReasoningEffort?: boolean
         modelId:string
     },
 ): Record<string, any> {
@@ -252,6 +253,7 @@ export function applyParameters(
                 value === -1000 ||
                 value === undefined ||
                 value === null ||
+                (parameter === 'reasoning_effort' && value === 'none' && arg.omitNoneReasoningEffort) ||
                 (typeof value === 'number' && isNaN(value))
             ) {
                 continue
@@ -318,6 +320,7 @@ export function applyParameters(
             value === -1000 ||
             value === undefined ||
             value === null ||
+            (parameter === 'reasoning_effort' && value === 'none' && arg.omitNoneReasoningEffort) ||
             (typeof value === 'number' && isNaN(value))
         ) {
             continue
