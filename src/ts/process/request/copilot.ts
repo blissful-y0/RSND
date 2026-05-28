@@ -418,6 +418,7 @@ export async function requestCopilot(arg: RequestDataArgumentExtended): Promise<
                 key: ctx.tidToken ?? ctx.githubToken,
                 extraHeaders: copilotHeaders,
                 proxyPolicy: COPILOT_PROXY_POLICY,
+                omitNoneReasoningEffort: true,
             }
 
             let result: requestDataResponse

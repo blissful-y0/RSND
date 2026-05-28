@@ -121,8 +121,32 @@ describe('requestOpenAIResponseAPI', () => {
             ['temperature', 'top_p', 'reasoning_effort', 'verbosity'],
             { reasoning_effort: 'reasoning.effort' },
             'model',
-            { modelId: 'copilot-gpt-5.5' },
+            { modelId: 'copilot-gpt-5.5', omitNoneReasoningEffort: true },
         )
+    })
+
+    test('keeps none reasoning effort without requesting a reasoning summary', async () => {
+        mocks.applyParameters.mockImplementationOnce((data: Record<string, any>) => ({
+            ...data,
+            reasoning: { effort: 'none' },
+        }))
+        const { requestOpenAIResponseAPI } = await import('./requests')
+
+        const response = await requestOpenAIResponseAPI({
+            aiModel: 'gpt-5.5',
+            formated: [{ role: 'user', content: 'hello' }],
+            modelInfo: {
+                id: 'gpt-5.5',
+                internalID: 'gpt-5.5',
+                parameters: ['reasoning_effort'],
+            },
+            maxTokens: 256,
+            mode: 'model',
+            previewBody: true,
+        } as any)
+
+        const preview = JSON.parse(response.result as string)
+        expect(preview.body.reasoning).toEqual({ effort: 'none' })
     })
 
     test('prepends non-streaming reasoning summary output as thoughts', async () => {

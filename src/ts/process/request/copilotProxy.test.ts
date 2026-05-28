@@ -162,6 +162,7 @@ describe('copilot OpenCode target (default)', () => {
             proxyPolicy: 'always',
             customURL: 'https://api.githubcopilot.com/responses',
             key: 'ghp_test',
+            omitNoneReasoningEffort: true,
         })
     })
 

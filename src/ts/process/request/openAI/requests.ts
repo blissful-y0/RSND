@@ -46,6 +46,22 @@ function applyVercelGatewayOptions(body: { [key:string]: any }, modelInfo: Reque
     }
 }
 
+function shouldOmitNoneReasoningEffort(arg: RequestDataArgumentExtended): boolean {
+    const modelId = String(arg.modelInfo?.id ?? '')
+    return arg.omitNoneReasoningEffort === true ||
+        arg.modelInfo?.provider === 15 ||
+        modelId.startsWith('copilot-') ||
+        modelId.startsWith('dynamic_copilot_')
+}
+
+function getApplyParameterOptions(arg: RequestDataArgumentExtended, extra: Record<string, any> = {}) {
+    return {
+        modelId: arg.modelInfo.id,
+        ...(shouldOmitNoneReasoningEffort(arg) ? { omitNoneReasoningEffort: true } : {}),
+        ...extra,
+    }
+}
+
 import { extractJSON, getOpenAIJSONSchema } from "../../templates/jsonSchema"
 import { applyChatTemplate } from "../../templates/chatTemplate"
 import { supportsInlayImage } from "../../files/inlays"
@@ -475,9 +491,7 @@ export async function requestOpenAI(arg:RequestDataArgumentExtended):Promise<req
         arg.modelInfo.parameters,
         {},
         arg.mode,
-        {
-            modelId: arg.modelInfo.id
-        }
+        getApplyParameterOptions(arg)
     )
 
     if(arg.modelInfo?.keyIdentifier === 'deepseek' && isDeepSeekV4ModelId(body.model)){
@@ -1052,10 +1066,8 @@ export async function requestOpenAIResponseAPI(arg:RequestDataArgumentExtended):
         store: false
     }, arg.modelInfo.parameters ?? ['temperature', 'top_p'], {
         reasoning_effort: 'reasoning.effort',
-    }, arg.mode, {
-        modelId: arg.modelInfo.id
-    })
-    if(body.reasoning?.effort){
+    }, arg.mode, getApplyParameterOptions(arg))
+    if(body.reasoning?.effort && body.reasoning.effort !== 'none'){
         body.reasoning.summary = 'detailed'
     }
 
