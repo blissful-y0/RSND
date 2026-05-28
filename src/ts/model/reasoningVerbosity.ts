@@ -1,6 +1,6 @@
 export type ReasoningEffortUiValue = 'default' | 'none' | 'low' | 'medium' | 'high' | 'xhigh'
 export type VerbosityUiValue = 'default' | 'low' | 'medium' | 'high'
-export type ReasoningEffortApiValue = 'low' | 'medium' | 'high' | 'xhigh'
+export type ReasoningEffortApiValue = 'none' | 'low' | 'medium' | 'high' | 'xhigh'
 
 export const reasoningEffortSelectOptions = [
     { value: 'none', label: 'None' },
@@ -67,15 +67,12 @@ export function uiReasoningEffortToDb(value: ReasoningEffortUiValue): number {
     }
 }
 
-// Returns undefined for 'none' so the request builder omits the field entirely —
-// some Copilot models (e.g. gpt-5.4) reject `reasoning_effort: "none"` outright.
-// Mirrors Cupcake plugin's "Off" behavior (parameter not sent).
 export function dbReasoningEffortToApi(
     value: number | null | undefined,
-): ReasoningEffortApiValue | undefined {
+): ReasoningEffortApiValue {
     switch (dbReasoningEffortToUi(value)) {
         case 'none':
-            return undefined
+            return 'none'
         case 'medium':
             return 'medium'
         case 'high':
