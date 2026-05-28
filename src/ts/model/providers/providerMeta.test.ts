@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'vitest'
 
+import { AnthropicModels } from './anthropic'
 import { CopilotModels } from './copilot'
 import { GoogleModels } from './google'
 import { NanoGPTModels } from './nanogpt'
@@ -7,6 +8,36 @@ import { OpenAIModels } from './openai'
 import { LLMFlags, LLMFormat, LLMTokenizer } from '../types'
 
 describe('provider model metadata', () => {
+    test('registers Claude Opus 4.8 as adaptive-only for Anthropic and Copilot', () => {
+        const anthropicOpus48 = AnthropicModels.find((model) => model.id === 'claude-opus-4-8')
+        const copilotOpus48 = CopilotModels.find((model) => model.id === 'copilot-claude-opus-4.8')
+
+        expect(anthropicOpus48).toMatchObject({
+            name: 'Claude 4.8 Opus',
+            shortName: '4.8 Opus',
+            format: LLMFormat.Anthropic,
+            tokenizer: LLMTokenizer.Claude,
+            recommended: true,
+            parameters: [],
+        })
+        expect(anthropicOpus48?.flags).toContain(LLMFlags.claudeAdaptiveThinking)
+        expect(anthropicOpus48?.flags).toContain(LLMFlags.claudeNoSamplingParams)
+        expect(anthropicOpus48?.flags).not.toContain(LLMFlags.claudeThinking)
+
+        expect(copilotOpus48).toMatchObject({
+            name: 'Claude 4.8 Opus',
+            internalID: 'claude-opus-4.8',
+            shortName: 'GH Copilot Opus 4.8',
+            format: LLMFormat.Anthropic,
+            tokenizer: LLMTokenizer.Claude,
+            recommended: true,
+            parameters: [],
+        })
+        expect(copilotOpus48?.flags).toContain(LLMFlags.claudeAdaptiveThinking)
+        expect(copilotOpus48?.flags).toContain(LLMFlags.claudeNoSamplingParams)
+        expect(copilotOpus48?.flags).not.toContain(LLMFlags.claudeThinking)
+    })
+
     test('marks requested Copilot models as recommended', () => {
         const recommendedIds = new Set(
             CopilotModels.filter((model) => model.recommended).map((model) => model.id)
