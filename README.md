@@ -23,6 +23,11 @@ RisuAI NodeOnly는 원본 [RisuAI](https://github.com/kwaroran/RisuAI)를 **Node
 
 PC에서 실행하면 브라우저로 바로 사용하고, 간단한 설정 하나면 스마트폰에서도 접속할 수 있습니다.
 
+- [Installation guide](docs/en/install.md)
+- [RisuAI migration guide](docs/en/migration.md)
+- [Remote access guide](docs/en/remote.md)
+- [Termux installation guide (Android)](docs/en/termux.md)
+
 ---
 
 ## 🔍 일반 RisuAI와 뭐가 다른가요?

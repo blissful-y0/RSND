@@ -8,26 +8,25 @@
     
     import { DBState } from 'src/ts/stores.svelte';
     import { customProviderStore } from "src/ts/plugins/plugins.svelte";
-    import { downloadFile } from "src/ts/globalApi.svelte";
-    import { tokenizeAccurate, tokenizerList } from "src/ts/tokenizer";
+    import { tokenizerList } from "src/ts/tokenizer";
     import ModelList from "src/lib/UI/ModelList.svelte";
-    import DropList from "src/lib/SideBars/DropList.svelte";
-    import { PlusIcon, TrashIcon, HardDriveUploadIcon, DownloadIcon, UploadIcon, CheckCircleIcon, XCircleIcon, LoaderIcon } from "@lucide/svelte";
+    import { PlusIcon, TrashIcon, CheckCircleIcon, XCircleIcon, LoaderIcon, TriangleAlertIcon, InfoIcon, ArrowRightIcon } from "@lucide/svelte";
     import { validateCopilotToken, fetchCopilotUsage, type CopilotUsageInfo } from "src/ts/process/request/copilot";
     import { validateNanoGPTKey, fetchNanoGPTBalance, fetchNanoGPTUsage, type NanoGPTBalance, type NanoGPTUsageInfo, type NanoGPTUsageMetric } from "src/ts/process/request/nanogpt";
     import { fetchVercelCredits, type VercelCredits } from "src/ts/process/request/vercel";
+    import ShAlert from "src/lib/UI/GUI/ShAlert.svelte";
+    import ShButton from "src/lib/UI/GUI/ShButton.svelte";
+    import { openSettings, SettingsRoute } from "src/ts/routing";
     import TextInput from "src/lib/UI/GUI/TextInput.svelte";
     import NumberInput from "src/lib/UI/GUI/NumberInput.svelte";
     import SliderInput from "src/lib/UI/GUI/SliderInput.svelte";
     import TextAreaInput from "src/lib/UI/GUI/TextAreaInput.svelte";
-    import Button from "src/lib/UI/GUI/Button.svelte";
     import SelectInput from "src/lib/UI/GUI/SelectInput.svelte";
     import OptionInput from "src/lib/UI/GUI/OptionInput.svelte";
     import CheckInput from "src/lib/UI/GUI/CheckInput.svelte";
     import SegmentedControl from "src/lib/UI/GUI/SegmentedControl.svelte";
     import { getOpenRouterModels, toModelGridItem as orToGridItem } from "src/ts/model/openrouter";
     import { getNanoGPTModels, getNanoGPTSubscriptionModels, toModelGridItem as ngToGridItem } from "src/ts/model/nanogpt";
-    import { getOllamaCloudModels, toModelGridItem as ocToGridItem } from "src/ts/model/ollamaCloud";
     import { getVercelModels, toModelGridItem as vcToGridItem } from "src/ts/model/vercel";
     import ModelGrid from "src/lib/UI/ModelGrid.svelte";
     import NanoGPTDashboard from "src/lib/UI/NanoGPTDashboard.svelte";
@@ -37,17 +36,14 @@
     import Accordion from "src/lib/UI/Accordion.svelte";
     import OpenrouterSettings from "./OpenrouterSettings.svelte";
     import ChatFormatSettings from "./ChatFormatSettings.svelte";
-    import PromptSettings from "./PromptSettings.svelte";
-    import { openPresetList } from "src/ts/stores.svelte";
-    import { selectSingleFile } from "src/ts/util";
-    import { getModelInfo, LLMFlags, LLMFormat, LLMProvider, LLMModels, registerCopilotModelsDynamic, registerNanoGPTModelsDynamic, registerOllamaCloudModelsDynamic, registerVercelModelsDynamic } from "src/ts/model/modellist";
-    import RegexList from "src/lib/SideBars/Scripts/RegexList.svelte";
+    import { getModelInfo, LLMFlags, LLMFormat, LLMProvider, LLMModels, registerCopilotModelsDynamic, registerNanoGPTModelsDynamic, registerVercelModelsDynamic } from "src/ts/model/modellist";
     import SettingRenderer from "../SettingRenderer.svelte";
     import { allBasicParameterItems } from "src/ts/setting/botSettingsParamsData";
     import SeparateParametersSection from "./SeparateParametersSection.svelte";
     import GeminiThinkingSeparateParams from "./GeminiThinkingSeparateParams.svelte";
     import AuxModelSelectors from './Model/AuxModelSelectors.svelte'
     import { SUBMODEL_PARAMETER_LOCATION_HINT } from "src/ts/setting/auxModelCopy";
+    import CustomModelsSettings from './Model/CustomModelsSettings.svelte'
     
     const openrouterPinnedItems: ModelGridPinnedItem[] = [
         { id: 'risu/free',       displayName: 'Free Auto',       providerName: 'Risu'       },
@@ -86,23 +82,6 @@
         }
     })
 
-    let tokens = $state({
-        mainPrompt: 0,
-        jailbreak: 0,
-        globalNote: 0,
-    })
-
-    interface Props {
-        goPromptTemplate?: any;
-    }
-
-    let { goPromptTemplate = () => {} }: Props = $props();
-
-    async function loadTokenize(){
-        tokens.mainPrompt = await tokenizeAccurate(DBState.db.mainPrompt, true)
-        tokens.jailbreak = await tokenizeAccurate(DBState.db.jailbreak, true)
-        tokens.globalNote = await tokenizeAccurate(DBState.db.globalNote, true)
-    }
 
     $effect.pre(() => {
         if(DBState.db.aiModel === 'textgen_webui' || DBState.db.subModel === 'mancer'){
@@ -127,7 +106,6 @@
 
     let copilotModelSyncInFlight = false
     let nanogptModelSyncInFlight = false
-    let ollamaCloudModelSyncInFlight = false
     let vercelModelSyncInFlight = false
 
     function ensureCopilotConfig() {
@@ -217,11 +195,6 @@
     let nanogptInfoError = $state('')
     let nanogptModelSyncStatus: 'idle'|'loading'|'done'|'error' = $state('idle')
     let nanogptModelSyncCount = $state(0)
-    let ollamaCloudModelSyncStatus: 'idle'|'loading'|'done'|'error' = $state('idle')
-    let ollamaCloudModelSyncCount = $state(0)
-    let ollamaCloudModels = $state<Awaited<ReturnType<typeof getOllamaCloudModels>>>([])
-    let ollamaCloudModelsLoading = $state(false)
-    let ollamaCloudLoadedKey = $state('')
     let vercelModelSyncStatus: 'idle'|'loading'|'done'|'error' = $state('idle')
     let vercelModelSyncCount = $state(0)
     let vercelCredits: VercelCredits | null = $state(null)
@@ -275,23 +248,6 @@
         }
     }
 
-    async function syncOllamaCloudModels() {
-        if (ollamaCloudModelSyncStatus === 'loading' || ollamaCloudModelSyncInFlight) return
-        ollamaCloudModelSyncStatus = 'loading'
-        ollamaCloudModelSyncInFlight = true
-        try {
-            await registerOllamaCloudModelsDynamic()
-            ollamaCloudModelSyncCount = LLMModels.filter((model) => model.id.startsWith('dynamic_ollama_cloud_')).length
-            ollamaCloudModelSyncStatus = 'done'
-        }
-        catch {
-            ollamaCloudModelSyncStatus = 'error'
-        }
-        finally {
-            ollamaCloudModelSyncInFlight = false
-        }
-    }
-
     async function syncVercelModels() {
         if (vercelModelSyncStatus === 'loading' || vercelModelSyncInFlight) return
         vercelModelSyncStatus = 'loading'
@@ -335,36 +291,6 @@
         }
     }
 
-    async function loadOllamaCloudModels() {
-        if (ollamaCloudModelsLoading) return
-        const key = DBState.db.ollamaCloudKey
-        ollamaCloudLoadedKey = key
-        if (!key) {
-            ollamaCloudModels = []
-            return
-        }
-        ollamaCloudModelsLoading = true
-        try {
-            ollamaCloudModels = await getOllamaCloudModels(key)
-        }
-        catch {
-            ollamaCloudModels = []
-        }
-        finally {
-            ollamaCloudModelsLoading = false
-        }
-    }
-
-    $effect(() => {
-        const shouldLoad =
-            (modelInfo.provider === LLMProvider.OllamaCloud || subModelInfo.provider === LLMProvider.OllamaCloud) &&
-            ollamaCloudInputMode === 'list'
-        const key = DBState.db.ollamaCloudKey
-        if (shouldLoad && key !== ollamaCloudLoadedKey) {
-            loadOllamaCloudModels()
-        }
-    })
-
     $effect(() => {
         const shouldLoad =
             (modelInfo.provider === LLMProvider.Vercel || subModelInfo.provider === LLMProvider.Vercel) &&
@@ -394,7 +320,6 @@
         return 'bg-green-500'
     }
     let nanogptInputMode = $state<'list' | 'manual'>(DBState.db.nanogptRequestModel && !DBState.db.nanogptRequestModelName ? 'manual' : 'list')
-    let ollamaCloudInputMode = $state<'list' | 'manual'>(DBState.db.ollamaCloudModel && !DBState.db.ollamaCloudModelName ? 'manual' : 'list')
     let vercelInputMode = $state<'list' | 'manual'>(DBState.db.vercelRequestModel && !DBState.db.vercelRequestModelName ? 'manual' : 'list')
     // svelte-ignore state_referenced_locally
     let prevNanogptInputMode = nanogptInputMode;
@@ -403,15 +328,6 @@
             DBState.db.nanogptRequestModel = '';
             DBState.db.nanogptRequestModelName = '';
             prevNanogptInputMode = nanogptInputMode;
-        }
-    });
-    // svelte-ignore state_referenced_locally
-    let prevOllamaCloudInputMode = ollamaCloudInputMode;
-    $effect(() => {
-        if (ollamaCloudInputMode !== prevOllamaCloudInputMode) {
-            DBState.db.ollamaCloudModel = '';
-            DBState.db.ollamaCloudModelName = '';
-            prevOllamaCloudInputMode = ollamaCloudInputMode;
         }
     });
     // svelte-ignore state_referenced_locally
@@ -425,14 +341,34 @@
     });
 </script>
 <SettingPage title={language.chatBot}>
+<ShAlert variant="info" className="mb-4">
+    {#snippet icon()}<InfoIcon />{/snippet}
+    {language.botSettingsPresetMovedDesc}
+    {#snippet action()}
+        <ShButton variant="outline" size="sm" onclick={() => openSettings(SettingsRoute.PromptPreset)}>
+            {language.promptPresetMenu}
+            <ArrowRightIcon size={14} />
+        </ShButton>
+    {/snippet}
+</ShAlert>
 <SettingTabs tabs={[
     { label: language.model, value: 0 },
     { label: language.parameters, value: 1 },
-    { label: language.prompt, value: 2 },
-    { label: language.others, value: 3 },
+    { label: language.customModels, value: 2 },
 ]} bind:selected={submenu} />
 
 {#if submenu === 0}
+    <ShAlert variant="warning" className="mt-4">
+        {#snippet icon()}<TriangleAlertIcon />{/snippet}
+        {#snippet title()}{language.botSettingsLegacyTitle}{/snippet}
+        {language.botSettingsLegacyDesc}
+        {#snippet action()}
+            <ShButton variant="outline" size="sm" onclick={() => openSettings(SettingsRoute.ModelPreset)}>
+                {language.modelPresetMenu}
+                <ArrowRightIcon size={14} />
+            </ShButton>
+        {/snippet}
+    </ShAlert>
     <span class="text-textcolor mt-4">{language.model} <Help key="model"/></span>
     <ModelList bind:value={DBState.db.aiModel}/>
 
@@ -846,69 +782,6 @@
         <span class="text-textcolor mt-4">Ollama Model <Help key="ollamaModel"/></span>
         <TextInput className="mt-2" marginBottom={false} bind:value={DBState.db.ollamaModel} />
     {/if}
-    {#if modelInfo.provider === LLMProvider.OllamaCloud || subModelInfo.provider === LLMProvider.OllamaCloud}
-        <span class="text-textcolor mt-4">Ollama Cloud API Key</span>
-        <TextInput hideText={DBState.db.hideApiKey} marginBottom={false} size={"sm"} bind:value={DBState.db.ollamaCloudKey} />
-
-        <span class="text-textcolor mt-4">Ollama Cloud {language.model}</span>
-        <SegmentedControl
-            bind:value={ollamaCloudInputMode}
-            options={[
-                { value: 'list', label: (language as any).nanoGPTSelectFromList || 'Select from List' },
-                { value: 'manual', label: (language as any).nanoGPTManualInput || 'Manual Input' }
-            ]}
-            size="md"
-        />
-
-        {#if ollamaCloudInputMode === 'manual'}
-            <TextInput marginBottom={false} size={"sm"} bind:value={DBState.db.ollamaCloudModel} placeholder="gpt-oss:120b" oninput={() => DBState.db.ollamaCloudModelName = ''}/>
-        {:else}
-            <ModelGrid
-                bind:value={DBState.db.ollamaCloudModel}
-                loading={ollamaCloudModelsLoading}
-                items={(ollamaCloudModels ?? []).map(ocToGridItem)}
-                pinnedItems={DBState.db.ollamaCloudModel && !ollamaCloudModels.some((model) => model.id === DBState.db.ollamaCloudModel) ? [{
-                    id: DBState.db.ollamaCloudModel,
-                    displayName: DBState.db.ollamaCloudModelName || DBState.db.ollamaCloudModel,
-                    providerName: 'Selected',
-                }] : []}
-                selectedLabelOverride={DBState.db.ollamaCloudModelName || DBState.db.ollamaCloudModel || undefined}
-                onselect={(_id, name) => { DBState.db.ollamaCloudModelName = name }}
-            />
-        {/if}
-
-        <span class="text-textcolor mt-4">Think</span>
-        <SegmentedControl
-            bind:value={DBState.db.ollamaCloudThink}
-            options={[
-                { value: 'auto', label: 'Auto' },
-                { value: 'off', label: 'Off' },
-                { value: 'on', label: 'On' },
-                { value: 'low', label: 'Low' },
-                { value: 'medium', label: 'Medium' },
-                { value: 'high', label: 'High' },
-                { value: 'max', label: 'Max' }
-            ]}
-            size="sm"
-            wrap
-        />
-
-        <Accordion name="Ollama Cloud Advanced" styled>
-            <div class="flex items-center justify-between mb-2">
-                <span class="text-textcolor text-sm">Advanced Options JSON</span>
-                <button class="text-xs text-textcolor2 hover:text-green-500 cursor-pointer" onclick={syncOllamaCloudModels}>
-                    {ollamaCloudModelSyncStatus === 'loading' ? 'Syncing...' : 'Sync Models'}
-                </button>
-            </div>
-            <TextAreaInput bind:value={DBState.db.ollamaCloudOptionsJson} size="sm" height="24" margin="none" placeholder={'{ "num_ctx": 8192 }'} />
-            <span class="text-xs text-textcolor2 mt-2 block">Auto lets Ollama decide. Some models support only On/Off; GPT-OSS supports Low/Medium/High; DeepSeek V4/R4 supports High/Max.</span>
-            {#if ollamaCloudModelSyncStatus === 'done'}
-                <span class="text-green-500 text-xs mt-1 block">{ollamaCloudModelSyncCount} models available. Reload model list to see new models.</span>
-            {:else if ollamaCloudModelSyncStatus === 'error'}
-                <span class="text-draculared text-xs mt-1 block">Failed to sync models.</span>
-            {/if}
-        </Accordion>
-    {/if}
     {#if modelInfo.provider === LLMProvider.Vercel || subModelInfo.provider === LLMProvider.Vercel}
         <span class="text-textcolor mt-4">Vercel API Key</span>
         <TextInput hideText={DBState.db.hideApiKey} marginBottom={false} size={"sm"} bind:value={DBState.db.vercelKey} />
@@ -1151,12 +1024,20 @@
         <ChatFormatSettings />
     {/if}
 
-    {#if DBState.db.auxModelUnderModelSettings}
-        <AuxModelSelectors />
-    {/if}
+    <AuxModelSelectors />
 {/if}
 
 {#if submenu === 1}
+    <ShAlert variant="warning" className="mt-4 mb-2">
+        {#snippet icon()}<TriangleAlertIcon />{/snippet}
+        {language.botSettingsParamScopeDesc}
+        {#snippet action()}
+            <ShButton variant="outline" size="sm" onclick={() => openSettings(SettingsRoute.ModelPreset)}>
+                {language.modelPresetMenu}
+                <ArrowRightIcon size={14} />
+            </ShButton>
+        {/snippet}
+    </ShAlert>
     <!-- Data-driven basic parameters -->
     <SettingRenderer items={allBasicParameterItems} {modelInfo} {subModelInfo} />
     {#if DBState.db.aiModel === 'textgen_webui' || DBState.db.aiModel === 'mancer' || DBState.db.aiModel.startsWith('local_') || DBState.db.aiModel.startsWith('hf:::')}
@@ -1297,238 +1178,10 @@
     <SeparateParametersSection />
 {/if}
 
-{#if submenu === 3}
-    <Accordion styled name="Bias " help="bias">
-        <table class="contain w-full max-w-full tabler">
-            <tbody>
-            <tr>
-                <th class="font-medium">Bias</th>
-                <th class="font-medium">{language.value}</th>
-                <th>
-                    <button class="font-medium cursor-pointer hover:text-primary w-full flex justify-center items-center" onclick={() => {
-                        let bia = DBState.db.bias
-                        bia.push(['', 0])
-                        DBState.db.bias = bia
-                    }}><PlusIcon /></button>
-                </th>
-            </tr>
-            {#if DBState.db.bias.length === 0}
-                <tr>
-                    <td colspan="3" class="text-textcolor2">{language.noBias}</td>
-                </tr>
-            {/if}
-            {#each DBState.db.bias as bias, i}
-                <tr>
-                    <td class="font-medium truncate">
-                        <TextInput bind:value={DBState.db.bias[i][0]} fullwidth/>
-                    </td>
-                    <td class="font-medium truncate">
-                        <NumberInput bind:value={DBState.db.bias[i][1]} max={100} min={-101} fullwidth/>
-                    </td>
-                    <td>
-                        <button class="font-medium flex justify-center items-center h-full cursor-pointer hover:text-red-400 w-full" onclick={() => {
-                            let bia = DBState.db.bias
-                            bia.splice(i, 1)
-                            DBState.db.bias = bia
-                        }}><TrashIcon /></button>
-                    </td>
-                </tr>
-            {/each}
-            </tbody>
-        </table>
-        <div class="text-textcolor2 mt-2 flex items-center gap-2">
-            <button class="font-medium cursor-pointer hover:text-textcolor gap-2" onclick={() => {
-                const data = JSON.stringify(DBState.db.bias, null, 2)
-                downloadFile('bias.json', data)
-            }}><DownloadIcon /></button>
-            <button class="font-medium cursor-pointer hover:text-textcolor" onclick={async () => {
-                const sel = await selectSingleFile(['json'])
-                const utf8 = new TextDecoder().decode(sel.data)
-                if(Array.isArray(JSON.parse(utf8))){
-                    DBState.db.bias = JSON.parse(utf8)
-                }
-            }}><HardDriveUploadIcon /></button>
-        </div>
-    </Accordion>
-
-    {#if DBState.db.aiModel === 'reverse_proxy'}
-    <Accordion styled name="{language.additionalParams} " help="additionalParams">
-        <table class="contain w-full max-w-full tabler">
-            <tbody>
-            <tr>
-                <th class="font-medium">{language.key}</th>
-                <th class="font-medium">{language.value}</th>
-                <th>
-                    <button class="font-medium cursor-pointer hover:text-primary w-full flex justify-center items-center" onclick={() => {
-                        let additionalParams = DBState.db.additionalParams
-                        additionalParams.push(['', ''])
-                        DBState.db.additionalParams = additionalParams
-                    }}><PlusIcon /></button>
-                </th>
-            </tr>
-            {#if DBState.db.bias.length === 0}
-                <tr class="text-textcolor2">
-                    <td colspan="3">{language.noData}</td>
-                </tr>
-            {/if}
-            {#each DBState.db.additionalParams as additionalParams, i}
-                <tr>
-                    <td class="font-medium truncate">
-                        <TextInput bind:value={DBState.db.additionalParams[i][0]} fullwidth/>
-                    </td>
-                    <td class="font-medium truncate">
-                        <TextInput bind:value={DBState.db.additionalParams[i][1]} fullwidth/>
-                    </td>
-                    <td>
-                        <button class="font-medium flex justify-center items-center h-full cursor-pointer hover:text-red-400 w-full" onclick={() => {
-                            let additionalParams = DBState.db.additionalParams
-                            additionalParams.splice(i, 1)
-                            DBState.db.additionalParams = additionalParams
-                        }}><TrashIcon /></button>
-                    </td>
-                </tr>
-            {/each}
-            </tbody>
-        </table>
-    </Accordion>
-    {/if}
-
-
-    <Accordion styled name={language.promptTemplate} help="botPromptTemplate">
-        {#if DBState.db.promptTemplate}
-            <PromptSettings mode='inline' subMenu={1} />
-        {:else}
-            <div class="flex items-center">
-                <Check check={false} name={language.usePromptTemplate} onChange={() => {
-                    DBState.db.promptTemplate = []
-                }}/>
-                <Help key="usePromptTemplate"/>
-            </div>
-        {/if}
-    </Accordion>
-
-    {#snippet CustomFlagButton(name:string,flag:LLMFlags)}
-        <Button className="mt-2" onclick={(e) => {
-            if(DBState.db.customFlags.includes(flag as LLMFlags)){
-                DBState.db.customFlags = DBState.db.customFlags.filter((f) => f !== flag)
-            }
-            else{
-                DBState.db.customFlags.push(flag as LLMFlags)
-            }
-        }} styled={DBState.db.customFlags.includes(flag as LLMFlags) ? 'primary' : 'outlined'}>
-            {name}
-        </Button>
-    {/snippet}
-
-    <Accordion styled name={language.customFlags} help="customFlags">
-        <div class="flex items-center">
-            <Check bind:check={DBState.db.enableCustomFlags} name={language.enableCustomFlags}/>
-            <Help key="enableCustomFlags"/>
-        </div>
-
-
-        {#if DBState.db.enableCustomFlags}
-            {@render CustomFlagButton('hasImageInput', 0)}
-            {@render CustomFlagButton('hasImageOutput', 1)}
-            {@render CustomFlagButton('hasAudioInput', 2)}
-            {@render CustomFlagButton('hasAudioOutput', 3)}
-            {@render CustomFlagButton('hasPrefill', 4)}
-            {@render CustomFlagButton('hasCache', 5)}
-            {@render CustomFlagButton('hasFullSystemPrompt', 6)}
-            {@render CustomFlagButton('hasFirstSystemPrompt', 7)}
-            {@render CustomFlagButton('hasStreaming', 8)}
-            {@render CustomFlagButton('requiresAlternateRole', 9)}
-            {@render CustomFlagButton('mustStartWithUserInput', 10)}
-            {@render CustomFlagButton('hasVideoInput', 12)}
-            {@render CustomFlagButton('OAICompletionTokens', 13)}
-            {@render CustomFlagButton('DeveloperRole', 14)}
-            {@render CustomFlagButton('geminiThinking', 15)}
-            {@render CustomFlagButton('geminiBlockOff', 16)}
-            {@render CustomFlagButton('deepSeekPrefix', 17)}
-            {@render CustomFlagButton('deepSeekThinkingInput', 18)}
-            {@render CustomFlagButton('deepSeekThinkingOutput', 19)}
-
-        {/if}
-    </Accordion>
-
-    <Accordion styled name={language.moduleIntergration} help="moduleIntergration">
-        <TextAreaInput bind:value={DBState.db.moduleIntergration} fullwidth height={"32"} autocomplete="off"/>
-    </Accordion>
-
-    <Accordion styled name={language.tools} help="tools">
-        <div class="flex items-center">
-            <Check name={language.search} check={DBState.db.modelTools.includes('search')} onChange={() => {
-                if(DBState.db.modelTools.includes('search')){
-                    DBState.db.modelTools = DBState.db.modelTools.filter((tool) => tool !== 'search')
-                }
-                else{
-                    DBState.db.modelTools.push('search')
-                }
-            }} />
-            <Help key="searchTool"/>
-        </div>
-    </Accordion>
-
-    <Accordion styled name={language.regexScript} help="botRegexScript">
-        <RegexList bind:value={DBState.db.presetRegex} buttons />
-    </Accordion>
-
-    <Accordion styled name={language.icon} help="botIcon">
-        <div class="p-2 rounded-md border border-darkborderc flex flex-col items-center gap-2">
-            <span>
-                {language.preview}
-            </span>
-            <div class="flex items-center justify-center gap-2">
-                {#if DBState.db.botPresets[DBState.db.botPresetsId]?.image}
-                    <img src={DBState.db.botPresets[DBState.db.botPresetsId]?.image} alt="icon" class="w-6 h-6 rounded-md" decoding="async"/>
-                    <span class="text-textcolor2">{DBState.db.botPresets[DBState.db.botPresetsId]?.name}</span>
-                {:else}
-                    <span class="text-textcolor2">{language.noImages}</span>
-                {/if}
-            </div>
-        </div>
-        <button class="mt-2 text-textcolor2 hover:text-textcolor focus-within:text-textcolor" onclick={async () => {
-            const sel = await selectSingleFile(['png', 'jpg', 'jpeg', 'webp'])
-            const canvas = document.createElement('canvas')
-            const ctx = canvas.getContext('2d')
-            const img = new Image()
-            //@ts-expect-error Uint8Array buffer type (ArrayBufferLike) is incompatible with BlobPart's ArrayBuffer
-            const blob = new Blob([sel.data], {type: "image/png"})
-            img.src = URL.createObjectURL(blob)
-            await img.decode()
-            canvas.width = 48
-            canvas.height = 48
-            ctx.drawImage(img, 0, 0, 48, 48)
-            const data = canvas.toDataURL('image/jpeg', 0.7)
-            DBState.db.botPresets[DBState.db.botPresetsId].image = data //Since its small (max 2304 pixels), its okay to store it directly
-        }}>
-            <UploadIcon />
-        </button>
-    </Accordion>
-    <Button onclick={() => {$openPresetList = true}} className="mt-4">{language.presets}</Button>
-{/if}
-
 {#if submenu === 2}
-    {#if !DBState.db.promptTemplate}
-        <span class="text-textcolor">{language.mainPrompt} <Help key="mainprompt"/></span>
-        <TextAreaInput className="mt-2 mb-4" fullwidth autocomplete="off" height={"32"} bind:value={DBState.db.mainPrompt}></TextAreaInput>
-        <span class="text-textcolor2 mb-6 text-sm mt-2">{tokens.mainPrompt} {language.tokens}</span>
-        <span class="text-textcolor">{language.jailbreakPrompt} <Help key="jailbreak"/></span>
-        <TextAreaInput className="mt-2 mb-4" fullwidth autocomplete="off" height={"32"} bind:value={DBState.db.jailbreak}></TextAreaInput>
-        <span class="text-textcolor2 mb-6 text-sm mt-2">{tokens.jailbreak} {language.tokens}</span>
-        <span class="text-textcolor">{language.globalNote} <Help key="globalNote"/></span>
-        <TextAreaInput className="mt-2 mb-4" fullwidth autocomplete="off" height={"32"} bind:value={DBState.db.globalNote}></TextAreaInput>
-        <span class="text-textcolor2 mb-6 text-sm mt-2">{tokens.globalNote} {language.tokens}</span>  
-        <span class="text-textcolor mb-2 mt-4">{language.formatingOrder} <Help key="formatOrder"/></span>
-        <DropList bind:list={DBState.db.formatingOrder} />
-        <div class="flex items-center mt-4">
-            <Check bind:check={DBState.db.promptPreprocess} name={language.promptPreprocess}/>
-            <Help key="promptPreprocess"/>
-        </div>
-    {:else if submenu === 2}
-        <PromptSettings mode='inline' />
-    {/if}
+    <CustomModelsSettings noAccordion />
 {/if}
+
 
 
 </SettingPage>

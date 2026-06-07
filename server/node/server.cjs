@@ -12,7 +12,17 @@ const nodeCrypto = require('crypto')
 const zlib = require('zlib')
 const rateLimit = require('express-rate-limit')
 const { WebSocketServer } = require('ws')
-const sharp = require('sharp')
+const Vips = require('wasm-vips')
+let _vipsPromise = null
+const getVips = () => {
+    if (!_vipsPromise) {
+        _vipsPromise = Vips().catch(err => {
+            _vipsPromise = null
+            throw err
+        })
+    }
+    return _vipsPromise
+}
 const { kvGet, kvSet, kvDel, kvList,
         kvDelPrefix, kvListWithSizes, kvSize, kvGetUpdatedAt, kvCopyValue, clearEntities, checkpointWal,
         db: sqliteDb } = require('./db.cjs');
@@ -756,6 +766,11 @@ if(!existsSync(savePath)){
 // stay where they were); only future backups land at the new path.
 const DEFAULT_BACKUPS_DIR = path.join(process.cwd(), "backups");
 const BACKUP_PATH_CONFIG_KEY = 'config/server-backup-path';
+const MANAGED_BACKUP_PATH_ROOTS = new Set(['server', 'dist', 'scripts', 'bin', 'node_modules', '.update-tmp']);
+// Plaintext marker the updater reads to preserve a custom in-tree backup dir
+// during in-place updates. KV lives inside the SQLite DB so the updater (which
+// runs without npm deps) can't read it; this marker bridges that gap.
+const BACKUP_PATH_MARKER = path.join(savePath, '__backup_path');
 
 function readBackupsDirConfig() {
     try {
@@ -766,11 +781,28 @@ function readBackupsDirConfig() {
     } catch { return DEFAULT_BACKUPS_DIR; }
 }
 
+function writeBackupPathMarker(absPath) {
+    try {
+        require('fs').writeFileSync(BACKUP_PATH_MARKER, absPath, 'utf-8');
+    } catch {
+        // Best-effort; marker absence only means the updater falls back to the
+        // hard-coded `backups` keep — same as before this feature existed.
+    }
+}
+
+function isManagedBackupPath(absPath) {
+    const rel = path.relative(process.cwd(), absPath);
+    if (rel.startsWith('..') || path.isAbsolute(rel)) return false;
+    if (!rel) return true;
+    return MANAGED_BACKUP_PATH_ROOTS.has(rel.split(path.sep)[0]);
+}
+
 let backupsDir = readBackupsDirConfig();
 if(!existsSync(backupsDir)){
     try { mkdirSync(backupsDir, { recursive: true }); }
     catch { backupsDir = DEFAULT_BACKUPS_DIR; mkdirSync(backupsDir, { recursive: true }); }
 }
+writeBackupPathMarker(backupsDir);
 const BACKUP_FILENAME_REGEX = /^risu-backup-\d+\.bin$/;
 
 const passwordPath = path.join(process.cwd(), 'save', '__password')
@@ -835,6 +867,9 @@ const CLOUDFLARED_ASSETS = {
     'darwin-x64':    { url: 'https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-darwin-amd64.tgz', type: 'tgz' },
     'linux-x64':     { url: 'https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64', type: 'bin' },
     'linux-arm64':   { url: 'https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-arm64', type: 'bin' },
+    // Termux reports process.platform === 'android' but the linux-arm64
+    // cloudflared binary (statically linked Go) runs cleanly on Bionic.
+    'android-arm64': { url: 'https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-arm64', type: 'bin' },
     'win32-x64':     { url: 'https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe', type: 'bin' },
 };
 
@@ -1289,7 +1324,7 @@ async function migrateInlaysToFilesystem() {
     await fs.writeFile(inlayMigrationMarker, new Date().toISOString(), 'utf-8');
 }
 
-async function fetchLatestRelease() {
+async function fetchLatestRelease(lang) {
     if (UPDATE_CHECK_DISABLED) return null;
     try {
         const currentVersion = getCurrentVersion();
@@ -1299,6 +1334,7 @@ async function fetchLatestRelease() {
             os: `${process.platform}-${process.arch}`,
             id: instanceId,
         });
+        if (lang) params.set('l', String(lang).slice(0, 16));
         const url = `${UPDATE_CHECK_URL}?${params}`;
         const res = await fetch(url);
         if (!res.ok) return null;
@@ -2522,6 +2558,10 @@ const reverseProxyFunc = async (req, res, next) => {
         head.delete('clear-site-data');
         head.delete('Cache-Control');
         head.delete('Content-Encoding');
+        // Node's fetch already decompressed the body, so the upstream
+        // (compressed) Content-Length no longer matches and would truncate the
+        // response. Drop it and let the body stream out chunked.
+        head.delete('Content-Length');
         const headObj = {};
         for (let [k, v] of head) {
             headObj[k] = v;
@@ -2601,6 +2641,10 @@ const reverseProxyFunc_get = async (req, res, next) => {
         head.delete('clear-site-data');
         head.delete('Cache-Control');
         head.delete('Content-Encoding');
+        // Node's fetch already decompressed the body, so the upstream
+        // (compressed) Content-Length no longer matches and would truncate the
+        // response. Drop it and let the body stream out chunked.
+        head.delete('Content-Length');
         const headObj = {};
         for (let [k, v] of head) {
             headObj[k] = v;
@@ -2989,10 +3033,17 @@ const THUMB_QUALITY = 75;
 const THUMB_IMAGE_EXTS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp']);
 
 async function generateThumbnail(buffer) {
-    return sharp(buffer)
-        .resize(THUMB_MAX_SIDE, THUMB_MAX_SIDE, { fit: 'inside', withoutEnlargement: true })
-        .webp({ quality: THUMB_QUALITY })
-        .toBuffer();
+    const vips = await getVips()
+    const img = vips.Image.thumbnailBuffer(buffer, THUMB_MAX_SIDE, {
+        height: THUMB_MAX_SIDE,
+        size: 'down',
+    })
+    try {
+        const out = img.writeToBuffer('.webp', { Q: THUMB_QUALITY })
+        return Buffer.from(out);
+    } finally {
+        img.delete()
+    }
 }
 
 app.get('/api/asset/:hexKey', sessionAuthMiddleware, async (req, res) => {
@@ -3070,6 +3121,93 @@ app.post('/api/crypto', async (req, res) => {
         res.send(hash.digest('hex'))
     } catch (error) {
         res.status(500).send({ error: 'Crypto operation failed' });
+    }
+})
+
+// Vertex / google-service-account access tokens. The browser cannot sign the
+// RS256 JWT itself: crypto.subtle needs a Secure Context that HTTP remote
+// access lacks, and node:crypto isn't in the client bundle. So the client
+// forwards the SA JSON here and the server signs + exchanges it. Google's token
+// response is forwarded verbatim so the client maps statuses unchanged.
+// Never log the SA JSON / private key / assertion / OAuth body.
+const GOOGLE_OAUTH_TOKEN_URI = 'https://oauth2.googleapis.com/token'
+app.post('/api/model-preset/google-service-account/token', async (req, res) => {
+    if (!await checkAuth(req, res)) return
+    try {
+        const serviceAccountJson = req.body && req.body.serviceAccountJson
+        const scope = (req.body && typeof req.body.scope === 'string' && req.body.scope.length > 0)
+            ? req.body.scope
+            : 'https://www.googleapis.com/auth/cloud-platform'
+        if (typeof serviceAccountJson !== 'string' || serviceAccountJson.length === 0) {
+            res.status(400).send({ error: 'serviceAccountJson required' })
+            return
+        }
+        let sa
+        try {
+            sa = JSON.parse(serviceAccountJson)
+        } catch {
+            res.status(400).send({ error: 'invalid service account JSON' })
+            return
+        }
+        const clientEmail = sa && sa.client_email
+        const privateKey = sa && sa.private_key
+        const kid = sa && sa.private_key_id
+        const tokenUri = (sa && typeof sa.token_uri === 'string' && sa.token_uri.length > 0)
+            ? sa.token_uri
+            : GOOGLE_OAUTH_TOKEN_URI
+        if (typeof clientEmail !== 'string' || typeof privateKey !== 'string') {
+            res.status(400).send({ error: 'service account missing client_email / private_key' })
+            return
+        }
+        // SSRF / signed-JWT exfiltration guard: only Google's documented endpoint.
+        if (tokenUri !== GOOGLE_OAUTH_TOKEN_URI) {
+            res.status(400).send({ error: 'unsupported token_uri' })
+            return
+        }
+        const nowSec = Math.floor(Date.now() / 1000)
+        const header = { alg: 'RS256', typ: 'JWT' }
+        if (typeof kid === 'string' && kid.length > 0) header.kid = kid
+        const payload = { iss: clientEmail, scope, aud: tokenUri, iat: nowSec, exp: nowSec + 3600 }
+        const signingInput =
+            `${Buffer.from(JSON.stringify(header)).toString('base64url')}.` +
+            `${Buffer.from(JSON.stringify(payload)).toString('base64url')}`
+        let signature
+        try {
+            const signer = nodeCrypto.createSign('RSA-SHA256')
+            signer.update(signingInput)
+            signer.end()
+            signature = signer.sign(privateKey).toString('base64url')
+        } catch {
+            res.status(400).send({ error: 'failed to sign with the provided private key' })
+            return
+        }
+        const assertion = `${signingInput}.${signature}`
+
+        let googleRes
+        try {
+            googleRes = await fetch(tokenUri, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                    Accept: 'application/json',
+                },
+                body: new URLSearchParams({
+                    grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
+                    assertion,
+                }).toString(),
+            })
+        } catch {
+            res.status(502).send({ error: 'OAuth token endpoint unreachable' })
+            return
+        }
+
+        // Forward Google's status + body verbatim (client maps errors).
+        const text = await googleRes.text().catch(() => '')
+        const contentType = googleRes.headers.get('content-type')
+        if (contentType) res.set('content-type', contentType)
+        res.status(googleRes.status).send(text)
+    } catch {
+        res.status(500).send({ error: 'service account token exchange failed' })
     }
 })
 
@@ -5338,6 +5476,11 @@ app.put('/api/backup/server/path', async (req, res, next) => {
             return res.status(400).json({ error: 'Path required' });
         }
         const resolved = path.resolve(next);
+        if (isManagedBackupPath(resolved)) {
+            return res.status(400).json({
+                error: 'Backup path cannot be inside PocketRisu app files. Choose a separate folder such as data/backups.',
+            });
+        }
         // Ensure parent exists / target is writable. Create the dir if missing.
         try {
             if (!existsSync(resolved)) {
@@ -5353,6 +5496,7 @@ app.put('/api/backup/server/path', async (req, res, next) => {
         const previous = backupsDir;
         backupsDir = resolved;
         kvSet(BACKUP_PATH_CONFIG_KEY, Buffer.from(resolved, 'utf-8'));
+        writeBackupPathMarker(resolved);
         res.json({
             path: backupsDir,
             previous,
@@ -5395,11 +5539,20 @@ app.post('/api/inlays/compress', sessionAuthMiddleware, async (req, res) => {
         let skipped = 0;
         let totalSaved = 0;
 
+        const vips = await getVips()
+
         for (let i = 0; i < imageFiles.length; i++) {
             const entry = imageFiles[i];
             try {
                 const original = await fs.readFile(entry.filePath);
-                const webpBuf = await sharp(original).webp({ quality }).toBuffer();
+                const img = vips.Image.newFromBuffer(original)
+                let webpBuf
+                try {
+                    const out = img.writeToBuffer('.webp', { Q: quality })
+                    webpBuf = Buffer.from(out);
+                } finally {
+                    img.delete()
+                }
 
                 if (webpBuf.length < original.length) {
                     const sidecar = await readInlaySidecar(entry.id);
@@ -5447,7 +5600,7 @@ app.get('/api/update-check', async (req, res) => {
         res.json({ currentVersion, hasUpdate: false, severity: 'none', disabled: true, deploymentType, canSelfUpdate: false });
         return;
     }
-    const result = await fetchLatestRelease();
+    const result = await fetchLatestRelease(req.query.lang);
     const response = result || { currentVersion, hasUpdate: false, severity: 'none' };
     response.deploymentType = deploymentType;
     response.canSelfUpdate = deploymentType === 'portable'
@@ -5820,7 +5973,13 @@ async function restoreBackup(backupDir, rootDir) {
 
 app.get('/api/tunnel/status', async (req, res) => {
     if (!await checkAuth(req, res)) return;
-    res.json({ disabled: TUNNEL_DISABLED, status: tunnelStatus, url: tunnelUrl, error: tunnelError });
+    res.json({
+        disabled: TUNNEL_DISABLED,
+        status: tunnelStatus,
+        url: tunnelUrl,
+        error: tunnelError,
+        platform: process.platform,
+    });
 });
 
 app.post('/api/tunnel/start', async (req, res) => {
