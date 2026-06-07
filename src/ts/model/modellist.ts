@@ -16,7 +16,6 @@ import { AnthropicModels } from './providers/anthropic'
 import { GoogleModels } from './providers/google'
 import { CopilotModels } from './providers/copilot'
 import { NanoGPTModels } from './providers/nanogpt'
-import { toOllamaCloudDynamicModel } from './ollamaCloud'
 import { toVercelDynamicModel } from './vercel'
 import { fetchNative } from "../globalApi.svelte"
 import { DBState } from "../stores.svelte"
@@ -197,7 +196,7 @@ export const LLMModels: LLMModel[] = [
         provider: LLMProvider.AsIs,
         format: LLMFormat.Ooba,
         flags: [LLMFlags.hasFirstSystemPrompt],
-        recommended: true,
+        recommended: false,
         parameters: [],
         tokenizer: LLMTokenizer.Llama
     },
@@ -228,7 +227,7 @@ export const LLMModels: LLMModel[] = [
         provider: LLMProvider.Mistral,
         format: LLMFormat.Mistral,
         flags: [LLMFlags.hasFirstSystemPrompt, LLMFlags.mustStartWithUserInput, LLMFlags.requiresAlternateRole],
-        recommended: true,
+        recommended: false,
         parameters: ['temperature', 'presence_penalty', 'frequency_penalty', 'top_p'],
         tokenizer: LLMTokenizer.Mistral
     },
@@ -239,7 +238,7 @@ export const LLMModels: LLMModel[] = [
         provider: LLMProvider.Mistral,
         format: LLMFormat.Mistral,
         flags: [LLMFlags.hasFirstSystemPrompt, LLMFlags.mustStartWithUserInput, LLMFlags.requiresAlternateRole],
-        recommended: true,
+        recommended: false,
         parameters: ['temperature', 'presence_penalty', 'frequency_penalty', 'top_p'],
         tokenizer: LLMTokenizer.Mistral
     },
@@ -271,7 +270,7 @@ export const LLMModels: LLMModel[] = [
         format: LLMFormat.Mistral,
         flags: [LLMFlags.hasFirstSystemPrompt, LLMFlags.mustStartWithUserInput, LLMFlags.requiresAlternateRole],
         parameters: ['temperature', 'presence_penalty', 'frequency_penalty', 'top_p'],
-        recommended: true,
+        recommended: false,
         tokenizer: LLMTokenizer.Mistral
     },
     // Google models
@@ -283,7 +282,7 @@ export const LLMModels: LLMModel[] = [
         provider: LLMProvider.AsIs,
         format: LLMFormat.Kobold,
         flags: [LLMFlags.hasFirstSystemPrompt],
-        recommended: true,
+        recommended: false,
         parameters: [
             'temperature',
             'top_p',
@@ -320,7 +319,7 @@ export const LLMModels: LLMModel[] = [
         provider: LLMProvider.Cohere,
         format: LLMFormat.Cohere,
         flags: [LLMFlags.hasFirstSystemPrompt, LLMFlags.requiresAlternateRole, LLMFlags.mustStartWithUserInput],
-        recommended: true,
+        recommended: false,
         parameters: [
             'temperature', 'top_k', 'top_p', 'presence_penalty', 'frequency_penalty'
         ],
@@ -333,7 +332,7 @@ export const LLMModels: LLMModel[] = [
         provider: LLMProvider.Cohere,
         format: LLMFormat.Cohere,
         flags: [LLMFlags.hasFirstSystemPrompt, LLMFlags.requiresAlternateRole, LLMFlags.mustStartWithUserInput],
-        recommended: true,
+        recommended: false,
         parameters: [
             'temperature', 'top_k', 'top_p', 'presence_penalty', 'frequency_penalty'
         ],
@@ -394,7 +393,7 @@ export const LLMModels: LLMModel[] = [
         provider: LLMProvider.NovelAI,
         format: LLMFormat.NovelAI,
         flags: [LLMFlags.hasFullSystemPrompt],
-        recommended: true,
+        recommended: false,
         parameters: [
             'temperature', 'top_k', 'top_p', 'presence_penalty', 'frequency_penalty'
         ],
@@ -406,7 +405,7 @@ export const LLMModels: LLMModel[] = [
         provider: LLMProvider.NovelAI,
         format: LLMFormat.NovelAI,
         flags: [LLMFlags.hasFullSystemPrompt],
-        recommended: true,
+        recommended: false,
         parameters: [
             'temperature', 'top_k', 'top_p', 'presence_penalty', 'frequency_penalty'
         ],
@@ -420,18 +419,8 @@ export const LLMModels: LLMModel[] = [
         format: LLMFormat.Ollama,
         flags: [LLMFlags.hasFullSystemPrompt],
         parameters: OpenAIParameters,
-        tokenizer: LLMTokenizer.Unknown
-    },
-    {
-        id: 'ollama-cloud',
-        name: 'Ollama Cloud (Custom)',
-        fullName: 'Ollama Cloud (Custom)',
-        provider: LLMProvider.OllamaCloud,
-        format: LLMFormat.Ollama,
-        flags: [LLMFlags.hasFullSystemPrompt, LLMFlags.hasStreaming],
-        parameters: ['temperature', 'top_p', 'top_k', 'repetition_penalty'],
         tokenizer: LLMTokenizer.Unknown,
-        recommended: true,
+        recommended: true
     },
     {
         id: 'vercel',
@@ -507,7 +496,7 @@ export const LLMModels: LLMModel[] = [
         tokenizer: LLMTokenizer.DeepSeek,
         endpoint: 'https://api.deepseek.com/beta/chat/completions',
         keyIdentifier: 'deepseek',
-        recommended: true
+        recommended: false
     },
     {
         id: 'deepseek-reasoner',
@@ -519,7 +508,7 @@ export const LLMModels: LLMModel[] = [
         tokenizer: LLMTokenizer.DeepSeek,
         endpoint: 'https://api.deepseek.com/beta/chat/completions',
         keyIdentifier: 'deepseek',
-        recommended: true
+        recommended: false
     },
     // DeepInfra
     ...makeDeepInfraModels([
@@ -694,30 +683,6 @@ export async function registerNanoGPTModelsDynamic() {
     }
 }
 
-export async function registerOllamaCloudModelsDynamic() {
-    try {
-        const apiKey = DBState.db.ollamaCloudKey
-        if (!apiKey) return
-
-        const { fetchOllamaCloudModels } = await import('../process/request/ollamaCloud')
-        const { models, error } = await fetchOllamaCloudModels(apiKey)
-        if (error) {
-            throw new Error(error)
-        }
-
-        for (const model of models) {
-            const dynamicId = `dynamic_ollama_cloud_${model.id}`
-            const exists = LLMModels.find((entry) => entry.id === dynamicId || entry.internalID === model.id)
-            if (exists) continue
-
-            LLMModels.push(toOllamaCloudDynamicModel(model))
-        }
-    } catch (error) {
-        console.error('Error fetching Ollama Cloud models', error)
-        throw error
-    }
-}
-
 export async function registerVercelModelsDynamic() {
     try {
         const { fetchVercelModels } = await import('../process/request/vercel')
@@ -850,7 +815,7 @@ export async function registerModelDynamic(){
                         ],
                         parameters: [...ClaudeParameters, 'thinking_tokens'],
                         tokenizer: LLMTokenizer.Claude,
-                        recommended: true
+                        recommended: false
                     })
                 }
             }
