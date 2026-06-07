@@ -13,12 +13,10 @@ const mocks = vi.hoisted(() => ({
             google: {
                 accessToken: '',
             },
-            ollamaCloudKey: 'oc-test-key',
             vercelKey: 'vc-test-key',
         },
     },
     fetchNanoGPTModels: vi.fn(),
-    fetchOllamaCloudModels: vi.fn(),
     fetchVercelModels: vi.fn(),
 }))
 
@@ -45,10 +43,6 @@ vi.mock('../globalApi.svelte', () => ({
 
 vi.mock('../process/request/nanogpt', () => ({
     fetchNanoGPTModels: mocks.fetchNanoGPTModels,
-}))
-
-vi.mock('../process/request/ollamaCloud', () => ({
-    fetchOllamaCloudModels: mocks.fetchOllamaCloudModels,
 }))
 
 vi.mock('../process/request/vercel', () => ({
@@ -85,47 +79,6 @@ describe('registerNanoGPTModelsDynamic', () => {
 
         expect(syncedModel).toBeDefined()
         expect(syncedModel?.flags.includes(LLMFlags.hasImageInput)).toBe(false)
-    })
-
-    test('registers Ollama Cloud models dynamically', async () => {
-        mocks.fetchOllamaCloudModels.mockResolvedValue({
-            models: [
-                {
-                    id: 'gpt-oss:120b',
-                    name: 'gpt-oss:120b',
-                    family: 'gpt-oss',
-                    parameterSize: '120B',
-                    quantizationLevel: '',
-                    capabilities: ['completion'],
-                },
-            ],
-        })
-
-        const { LLMProvider, LLMModels, registerOllamaCloudModelsDynamic } = await import('./modellist')
-
-        for (let i = LLMModels.length - 1; i >= 0; i--) {
-            if (LLMModels[i].id.startsWith('dynamic_ollama_cloud_')) {
-                LLMModels.splice(i, 1)
-            }
-        }
-
-        await registerOllamaCloudModelsDynamic()
-
-        const syncedModel = LLMModels.find((model) => model.id === 'dynamic_ollama_cloud_gpt-oss:120b')
-
-        expect(syncedModel?.provider).toBe(LLMProvider.OllamaCloud)
-        expect(syncedModel?.internalID).toBe('gpt-oss:120b')
-    })
-
-    test('surfaces Ollama Cloud model sync errors', async () => {
-        mocks.fetchOllamaCloudModels.mockResolvedValue({
-            models: [],
-            error: 'Failed to fetch Ollama Cloud models (HTTP 401)',
-        })
-
-        const { registerOllamaCloudModelsDynamic } = await import('./modellist')
-
-        await expect(registerOllamaCloudModelsDynamic()).rejects.toThrow('Failed to fetch Ollama Cloud models')
     })
 
     test('registers Vercel AI Gateway models dynamically', async () => {

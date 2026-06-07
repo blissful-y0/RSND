@@ -1,5 +1,7 @@
 import { helpVi } from "./help.vi";
 export const languageVietnamese = {
+    modelPresetToolUse: "Sử dụng công cụ",
+    modelPresetToolUseHelp: "Cho phép preset này gọi các công cụ đã cấu hình (MCP). Mặc định tắt. Lượt chạy công cụ được gửi mà không có streaming.",
     "formating": {
         "main": "Lời nhắc chính",
         "jailbreak": "Lời nhắc bẻ khóa",
@@ -582,7 +584,6 @@ export const languageVietnamese = {
     "textColor": "Văn bản màu",
     "classicRisu": "Risu cổ điển",
     "highcontrast": "Độ tương phản cao",
-    "quickPreset": "Bạn có thể nhanh chóng thay đổi cài đặt trước bằng Ctrl + (Chỉ mục cài sẵn)",
     "requestretrys": "Yêu cầu thử lại khi thất bại",
     "utilityBot": "Bot tiện ích",
     "ShowLog": "Hiển thị nhật ký yêu cầu",
@@ -1330,6 +1331,8 @@ export const languageVietnamese = {
     nanoGPTSelectFromList: "Chọn từ danh sách",
     nanoGPTManualInput: "Nhập thủ công",
     nanoGPTManualModelSelect: "Chọn mô hình thủ công",
+
+    remoteAccessTermuxWarning: "Cloudflare Quick Tunnel không hoạt động trên Termux. Hãy sử dụng Tailscale hoặc công cụ truy cập từ xa khác.",
 
     httpInsecureWarningTitle: "Đang kết nối qua HTTP",
     httpInsecureWarningBody: "Một số tính năng như plugin có thể không hoạt động. Hãy dùng tính năng Truy cập từ xa để có kết nối HTTPS.",

@@ -1,5 +1,7 @@
 import { helpEs } from "./help.es";
 export const languageSpanish = {
+    modelPresetToolUse: "Uso de herramientas",
+    modelPresetToolUseHelp: "Permite que este preajuste use las herramientas configuradas (MCP). Desactivado por defecto. Las ejecuciones de herramientas se envían sin streaming.",
     "formating": {
         "main": "Prompt Principal",
         "jailbreak": "Prompt Jailbreak",
@@ -582,7 +584,6 @@ export const languageSpanish = {
     "textColor": "Color del Texto",
     "classicRisu": "Risu Clásico",
     "highcontrast": "Alto Contraste",
-    "quickPreset": "Puedes cambiar rápidamente el preset con Ctrl + (Índice del Preset)",
     "requestretrys": "Reintentos de Solicitud al Fallar",
     "utilityBot": "Bot de Utilidad",
     "ShowLog": "Mostrar Registros de Solicitud",
@@ -1330,6 +1331,8 @@ export const languageSpanish = {
     nanoGPTSelectFromList: "Seleccionar de la lista",
     nanoGPTManualInput: "Entrada manual",
     nanoGPTManualModelSelect: "Selección manual de modelo",
+
+    remoteAccessTermuxWarning: "Cloudflare Quick Tunnel no funciona en Termux. Utiliza Tailscale u otra herramienta de acceso remoto.",
 
     httpInsecureWarningTitle: "Conectado mediante HTTP",
     httpInsecureWarningBody: "Algunas funciones como los plugins pueden no funcionar. Usa la función de Acceso Remoto para una conexión HTTPS.",

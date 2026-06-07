@@ -1,5 +1,7 @@
 import { helpDe } from "./help.de";
 export const languageGerman = {
+    modelPresetToolUse: "Werkzeugnutzung",
+    modelPresetToolUseHelp: "Erlaubt diesem Preset, deine konfigurierten Werkzeuge (MCP) aufzurufen. Standardmäßig aus. Werkzeugaufrufe werden ohne Streaming gesendet.",
     "formating": {
         "main": "Haupt-Anweisung",
         "jailbreak": "Jailbreak Anweisung",
@@ -582,7 +584,6 @@ export const languageGerman = {
     "textColor": "Textfarbe",
     "classicRisu": "Klassisches Risu",
     "highcontrast": "Hoher Kontrast",
-    "quickPreset": "Sie können die Voreinstellung schnell ändern mit Strg + (Index der Voreinstellung)",
     "requestretrys": "Anforderungsversuche bei Fehlschlag",
     "utilityBot": "Dienstbot",
     "ShowLog": "Anforderungsprotokolle anzeigen",
@@ -1330,6 +1331,8 @@ export const languageGerman = {
     nanoGPTSelectFromList: "Aus der Liste auswählen",
     nanoGPTManualInput: "Manuelle Eingabe",
     nanoGPTManualModelSelect: "Manuelle Modellauswahl",
+
+    remoteAccessTermuxWarning: "Cloudflare Quick Tunnel funktioniert auf Termux nicht. Verwenden Sie stattdessen Tailscale oder ein anderes Tool für den Fernzugriff.",
 
     httpInsecureWarningTitle: "Über HTTP verbunden",
     httpInsecureWarningBody: "Einige Funktionen wie Plugins funktionieren möglicherweise nicht. Verwenden Sie den Fernzugriff für eine HTTPS-Verbindung.",
