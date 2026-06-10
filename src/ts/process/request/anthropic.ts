@@ -575,7 +575,10 @@ export async function requestClaude(arg:RequestDataArgumentExtended):Promise<req
         headers['anthropic-dangerous-direct-browser-access'] = 'true'
     }
 
-    const usesCopilotHeaders = !!arg.extraHeaders && arg.modelInfo?.provider === LLMProvider.Copilot
+    const usesCopilotHeaders = !!arg.extraHeaders && (
+        arg.modelInfo?.provider === LLMProvider.Copilot ||
+        arg.modelInfo?.provider === LLMProvider.LLMGateway
+    )
 
     if(usesCopilotHeaders){
         const {

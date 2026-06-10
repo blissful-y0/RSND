@@ -17,6 +17,7 @@ import { GoogleModels } from './providers/google'
 import { CopilotModels } from './providers/copilot'
 import { NanoGPTModels } from './providers/nanogpt'
 import { toVercelDynamicModel } from './vercel'
+import { toLLMGatewayDynamicModel } from './llmgateway'
 import { fetchNative } from "../globalApi.svelte"
 import { DBState } from "../stores.svelte"
 import { customProviderStore, pluginV2 } from "../plugins/plugins.svelte"
@@ -433,6 +434,53 @@ export const LLMModels: LLMModel[] = [
         tokenizer: LLMTokenizer.tiktokenO200Base,
         recommended: true,
     },
+    {
+        id: 'llmgateway',
+        name: 'LLM Gateway (DevPass)',
+        fullName: 'LLM Gateway (DevPass)',
+        provider: LLMProvider.LLMGateway,
+        format: LLMFormat.OpenAICompatible,
+        flags: [LLMFlags.hasFullSystemPrompt, LLMFlags.hasImageInput, LLMFlags.hasStreaming, LLMFlags.OAICompletionTokens],
+        parameters: GPT5Parameters,
+        tokenizer: LLMTokenizer.tiktokenO200Base,
+        recommended: true,
+    },
+    {
+        id: 'llmgateway-claude-opus-4.7',
+        name: 'Claude Opus 4.7',
+        fullName: 'LLM Gateway Claude Opus 4.7',
+        internalID: 'claude-opus-4-7',
+        provider: LLMProvider.LLMGateway,
+        format: LLMFormat.Anthropic,
+        flags: [LLMFlags.hasImageInput, LLMFlags.hasFirstSystemPrompt, LLMFlags.hasStreaming],
+        parameters: ClaudeParameters,
+        tokenizer: LLMTokenizer.Claude,
+        recommended: true,
+    },
+    {
+        id: 'llmgateway-gpt-5.5',
+        name: 'GPT-5.5',
+        fullName: 'LLM Gateway GPT-5.5',
+        internalID: 'gpt-5.5',
+        provider: LLMProvider.LLMGateway,
+        format: LLMFormat.OpenAICompatible,
+        flags: [LLMFlags.hasFullSystemPrompt, LLMFlags.hasImageInput, LLMFlags.hasStreaming, LLMFlags.OAICompletionTokens],
+        parameters: GPT5Parameters,
+        tokenizer: LLMTokenizer.tiktokenO200Base,
+        recommended: true,
+    },
+    {
+        id: 'llmgateway-deepseek-v4-pro',
+        name: 'DeepSeek V4 Pro',
+        fullName: 'LLM Gateway DeepSeek V4 Pro',
+        internalID: 'deepseek-v4-pro',
+        provider: LLMProvider.LLMGateway,
+        format: LLMFormat.OpenAICompatible,
+        flags: [LLMFlags.hasFullSystemPrompt, LLMFlags.hasStreaming],
+        parameters: ['temperature', 'top_p', 'frequency_penalty', 'presence_penalty', 'reasoning_effort'],
+        tokenizer: LLMTokenizer.DeepSeek,
+        recommended: true,
+    },
     // WebLLM
     {
         id: 'hf:::Xenova/opt-350m',
@@ -700,6 +748,27 @@ export async function registerVercelModelsDynamic() {
         }
     } catch (error) {
         console.error('Error fetching Vercel models', error)
+        throw error
+    }
+}
+
+export async function registerLLMGatewayModelsDynamic() {
+    try {
+        const { fetchLLMGatewayModels } = await import('../process/request/llmgateway')
+        const { models, error } = await fetchLLMGatewayModels()
+        if (error) {
+            throw new Error(error)
+        }
+
+        for (const model of models) {
+            const dynamicId = `dynamic_llmgateway_${model.id}`
+            const exists = LLMModels.find((entry) => entry.id === dynamicId || (entry.provider === LLMProvider.LLMGateway && entry.internalID === model.id))
+            if (exists) continue
+
+            LLMModels.push(toLLMGatewayDynamicModel(model))
+        }
+    } catch (error) {
+        console.error('Error fetching LLM Gateway models', error)
         throw error
     }
 }

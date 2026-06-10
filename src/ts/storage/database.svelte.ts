@@ -496,6 +496,9 @@ export function setDatabase(data:Database){
     data.vercelServiceTier ??= 'flex'
     data.vercelPromptCacheRetention ??= '24h'
     data.vercelGatewayCaching ??= true
+    data.llmGatewayKey ??= ''
+    data.llmGatewayRequestModel ??= ''
+    data.llmGatewayRequestModelName ??= ''
     data.autoContinueChat ??= false
     data.autoContinueMinTokens ??= 0
     data.repetition_penalty ??= 1
@@ -1214,6 +1217,9 @@ export interface Database{
     vercelServiceTier:'auto' | 'default' | 'flex' | 'priority'
     vercelPromptCacheRetention:'off' | '24h'
     vercelGatewayCaching:boolean
+    llmGatewayKey:string
+    llmGatewayRequestModel:string
+    llmGatewayRequestModelName:string
     autoContinueChat:boolean
     autoContinueMinTokens:number
     removeIncompleteResponse:boolean
