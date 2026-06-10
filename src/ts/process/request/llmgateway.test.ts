@@ -29,7 +29,7 @@ vi.mock('./anthropic', () => ({
     requestClaude: mocks.requestClaude,
 }))
 
-vi.mock('src/ts/model/modellist', () => ({
+vi.mock('src/ts/model/types', () => ({
     LLMFormat: {
         OpenAICompatible: 'openai-compatible',
         Anthropic: 'anthropic',

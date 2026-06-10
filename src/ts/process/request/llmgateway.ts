@@ -1,5 +1,5 @@
 import { fetchNative } from "src/ts/globalApi.svelte"
-import { LLMFormat } from "src/ts/model/modellist"
+import { LLMFormat } from "src/ts/model/types"
 import { getDatabase } from "src/ts/storage/database.svelte"
 import type { RequestDataArgumentExtended, requestDataResponse } from './request'
 import { requestClaude } from './anthropic'
