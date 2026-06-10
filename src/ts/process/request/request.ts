@@ -20,6 +20,7 @@ import { requestClaude } from './anthropic';
 import { requestCopilot } from './copilot';
 import { requestNanoGPT } from './nanogpt';
 import { requestVercel } from './vercel';
+import { requestLLMGateway } from './llmgateway';
 import { requestGoogleCloudVertex } from './google';
 import { requestOpenAI, requestOpenAILegacyInstruct, requestOpenAIResponseAPI } from "./openAI/requests";
 import { withTrackedRequestActivity } from './requestActivity';
@@ -483,6 +484,10 @@ export async function requestChatDataMain(arg:requestDataArgument, model:ModelMo
 
     if (targ.modelInfo.provider === LLMProvider.Vercel) {
         return requestVercel(targ)
+    }
+
+    if (targ.modelInfo.provider === LLMProvider.LLMGateway) {
+        return requestLLMGateway(targ)
     }
 
     switch(format){

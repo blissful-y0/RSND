@@ -28,6 +28,7 @@
     import { getOpenRouterModels, toModelGridItem as orToGridItem } from "src/ts/model/openrouter";
     import { getNanoGPTModels, getNanoGPTSubscriptionModels, toModelGridItem as ngToGridItem } from "src/ts/model/nanogpt";
     import { getVercelModels, toModelGridItem as vcToGridItem } from "src/ts/model/vercel";
+    import { getLLMGatewayModels, toModelGridItem as lgToGridItem } from "src/ts/model/llmgateway";
     import ModelGrid from "src/lib/UI/ModelGrid.svelte";
     import NanoGPTDashboard from "src/lib/UI/NanoGPTDashboard.svelte";
     import NanoGPTProviderPicker from "src/lib/UI/NanoGPTProviderPicker.svelte";
@@ -36,7 +37,7 @@
     import Accordion from "src/lib/UI/Accordion.svelte";
     import OpenrouterSettings from "./OpenrouterSettings.svelte";
     import ChatFormatSettings from "./ChatFormatSettings.svelte";
-    import { getModelInfo, LLMFlags, LLMFormat, LLMProvider, LLMModels, registerCopilotModelsDynamic, registerNanoGPTModelsDynamic, registerVercelModelsDynamic } from "src/ts/model/modellist";
+    import { getModelInfo, LLMFlags, LLMFormat, LLMProvider, LLMModels, registerCopilotModelsDynamic, registerNanoGPTModelsDynamic, registerVercelModelsDynamic, registerLLMGatewayModelsDynamic } from "src/ts/model/modellist";
     import SettingRenderer from "../SettingRenderer.svelte";
     import { allBasicParameterItems } from "src/ts/setting/botSettingsParamsData";
     import SeparateParametersSection from "./SeparateParametersSection.svelte";
@@ -107,6 +108,7 @@
     let copilotModelSyncInFlight = false
     let nanogptModelSyncInFlight = false
     let vercelModelSyncInFlight = false
+    let llmGatewayModelSyncInFlight = false
 
     function ensureCopilotConfig() {
         if (!DBState.db.copilot) {
@@ -203,6 +205,11 @@
     let vercelModels = $state<Awaited<ReturnType<typeof getVercelModels>>>([])
     let vercelModelsLoading = $state(false)
     let vercelModelsLoaded = $state(false)
+    let llmGatewayModelSyncStatus: 'idle'|'loading'|'done'|'error' = $state('idle')
+    let llmGatewayModelSyncCount = $state(0)
+    let llmGatewayModels = $state<Awaited<ReturnType<typeof getLLMGatewayModels>>>([])
+    let llmGatewayModelsLoading = $state(false)
+    let llmGatewayModelsLoaded = $state(false)
 
     async function verifyNanoGPTKey(index: number) {
         const key = ensureNanoGPTConfig().apiKeys[index]
@@ -265,6 +272,23 @@
         }
     }
 
+    async function syncLLMGatewayModels() {
+        if (llmGatewayModelSyncStatus === 'loading' || llmGatewayModelSyncInFlight) return
+        llmGatewayModelSyncStatus = 'loading'
+        llmGatewayModelSyncInFlight = true
+        try {
+            await registerLLMGatewayModelsDynamic()
+            llmGatewayModelSyncCount = LLMModels.filter((model) => model.provider === LLMProvider.LLMGateway).length
+            llmGatewayModelSyncStatus = 'done'
+        }
+        catch {
+            llmGatewayModelSyncStatus = 'error'
+        }
+        finally {
+            llmGatewayModelSyncInFlight = false
+        }
+    }
+
     async function loadVercelCredits() {
         if (vercelCreditsLoading || !DBState.db.vercelKey) return
         vercelCreditsLoading = true
@@ -291,12 +315,37 @@
         }
     }
 
+    async function loadLLMGatewayModels() {
+        if (llmGatewayModelsLoading) return
+        llmGatewayModelsLoading = true
+        try {
+            llmGatewayModels = await getLLMGatewayModels()
+            llmGatewayModelsLoaded = true
+        }
+        catch {
+            llmGatewayModels = []
+            llmGatewayModelsLoaded = true
+        }
+        finally {
+            llmGatewayModelsLoading = false
+        }
+    }
+
     $effect(() => {
         const shouldLoad =
             (modelInfo.provider === LLMProvider.Vercel || subModelInfo.provider === LLMProvider.Vercel) &&
             vercelInputMode === 'list'
         if (shouldLoad && !vercelModelsLoaded) {
             loadVercelModels()
+        }
+    })
+
+    $effect(() => {
+        const shouldLoad =
+            (modelInfo.provider === LLMProvider.LLMGateway || subModelInfo.provider === LLMProvider.LLMGateway) &&
+            llmGatewayInputMode === 'list'
+        if (shouldLoad && !llmGatewayModelsLoaded) {
+            loadLLMGatewayModels()
         }
     })
 
@@ -321,6 +370,7 @@
     }
     let nanogptInputMode = $state<'list' | 'manual'>(DBState.db.nanogptRequestModel && !DBState.db.nanogptRequestModelName ? 'manual' : 'list')
     let vercelInputMode = $state<'list' | 'manual'>(DBState.db.vercelRequestModel && !DBState.db.vercelRequestModelName ? 'manual' : 'list')
+    let llmGatewayInputMode = $state<'list' | 'manual'>(DBState.db.llmGatewayRequestModel && !DBState.db.llmGatewayRequestModelName ? 'manual' : 'list')
     // svelte-ignore state_referenced_locally
     let prevNanogptInputMode = nanogptInputMode;
     $effect(() => {
@@ -337,6 +387,15 @@
             DBState.db.vercelRequestModel = '';
             DBState.db.vercelRequestModelName = '';
             prevVercelInputMode = vercelInputMode;
+        }
+    });
+    // svelte-ignore state_referenced_locally
+    let prevLLMGatewayInputMode = llmGatewayInputMode;
+    $effect(() => {
+        if (llmGatewayInputMode !== prevLLMGatewayInputMode) {
+            DBState.db.llmGatewayRequestModel = '';
+            DBState.db.llmGatewayRequestModelName = '';
+            prevLLMGatewayInputMode = llmGatewayInputMode;
         }
     });
 </script>
@@ -864,6 +923,53 @@
                 <span class="text-green-500 text-xs mt-1 block">{vercelModelSyncCount} models available. Reload model list to see new models.</span>
             {:else if vercelModelSyncStatus === 'error'}
                 <span class="text-draculared text-xs mt-1 block">Failed to sync Vercel models.</span>
+            {/if}
+        </Accordion>
+    {/if}
+    {#if modelInfo.provider === LLMProvider.LLMGateway || subModelInfo.provider === LLMProvider.LLMGateway}
+        <span class="text-textcolor mt-4">LLM Gateway DevPass Key</span>
+        <TextInput hideText={DBState.db.hideApiKey} marginBottom={false} size={"sm"} bind:value={DBState.db.llmGatewayKey} placeholder="llmgtwy_..." />
+
+        {#if DBState.db.aiModel === 'llmgateway' || DBState.db.subModel === 'llmgateway'}
+            <span class="text-textcolor mt-4">LLM Gateway Model</span>
+            <SegmentedControl
+                bind:value={llmGatewayInputMode}
+                options={[
+                    { value: 'list', label: (language as any).nanoGPTSelectFromList || 'Select from List' },
+                    { value: 'manual', label: (language as any).nanoGPTManualInput || 'Manual Input' }
+                ]}
+                size="md"
+            />
+
+            {#if llmGatewayInputMode === 'manual'}
+                <TextInput marginBottom={false} size={"sm"} bind:value={DBState.db.llmGatewayRequestModel} placeholder="gpt-5.5" oninput={() => DBState.db.llmGatewayRequestModelName = ''}/>
+            {:else}
+                <ModelGrid
+                    bind:value={DBState.db.llmGatewayRequestModel}
+                    loading={llmGatewayModelsLoading}
+                    items={(llmGatewayModels ?? []).map(lgToGridItem)}
+                    pinnedItems={DBState.db.llmGatewayRequestModel && !llmGatewayModels.some((model) => model.id === DBState.db.llmGatewayRequestModel) ? [{
+                        id: DBState.db.llmGatewayRequestModel,
+                        displayName: DBState.db.llmGatewayRequestModelName || DBState.db.llmGatewayRequestModel,
+                        providerName: 'Selected',
+                    }] : []}
+                    selectedLabelOverride={DBState.db.llmGatewayRequestModelName || DBState.db.llmGatewayRequestModel || undefined}
+                    onselect={(_id, name) => { DBState.db.llmGatewayRequestModelName = name }}
+                />
+            {/if}
+        {/if}
+
+        <Accordion name="LLM Gateway" styled>
+            <div class="flex items-center justify-between mb-2">
+                <span class="text-textcolor text-sm">Available Models</span>
+                <button class="text-xs text-textcolor2 hover:text-green-500 cursor-pointer" onclick={syncLLMGatewayModels}>
+                    {llmGatewayModelSyncStatus === 'loading' ? 'Syncing...' : 'Sync Models'}
+                </button>
+            </div>
+            {#if llmGatewayModelSyncStatus === 'done'}
+                <span class="text-green-500 text-xs mt-1 block">{llmGatewayModelSyncCount} models available. Reload model list to see new models.</span>
+            {:else if llmGatewayModelSyncStatus === 'error'}
+                <span class="text-draculared text-xs mt-1 block">Failed to sync LLM Gateway models.</span>
             {/if}
         </Accordion>
     {/if}
