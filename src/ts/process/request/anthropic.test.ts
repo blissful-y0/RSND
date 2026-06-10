@@ -89,3 +89,46 @@ describe('requestClaude Copilot headers', () => {
         expect(parsed.headers['anthropic-beta']).not.toContain('output-128k-2025-02-19')
     })
 })
+
+describe('requestClaude LLM Gateway headers', () => {
+    test('uses DevPass bearer headers without Anthropic beta or x-api-key', async () => {
+        const { requestClaude } = await import('./anthropic')
+
+        const result = await requestClaude({
+            formated: [{ role: 'user', content: 'hello' }],
+            maxTokens: 9000,
+            mode: 'model',
+            useStreaming: false,
+            customURL: 'https://api.llmgateway.io/v1/messages',
+            key: 'llmgtwy_test',
+            previewBody: true,
+            extraHeaders: {
+                Authorization: 'Bearer llmgtwy_test',
+                'Content-Type': 'application/json',
+                'anthropic-version': '2023-06-01',
+                'User-Agent': 'opencode/1.14.20',
+                'Openai-Intent': 'conversation-edits',
+                'x-initiator': 'user',
+                'x-session-affinity': 'ses_000000000000ABCDEFGHIJKLMN',
+            },
+            modelInfo: {
+                id: 'llmgateway-claude-opus-4.7',
+                internalID: 'claude-opus-4-7',
+                provider: 19,
+                format: LLMFormat.Anthropic,
+                flags: [],
+                parameters: [],
+            },
+        } as any)
+
+        if (result.type !== 'success' || typeof result.result !== 'string') {
+            throw new Error(`Expected preview JSON, got ${result.type}`)
+        }
+
+        const parsed = JSON.parse(result.result)
+        expect(parsed.headers.Authorization).toBe('Bearer llmgtwy_test')
+        expect(parsed.headers['x-api-key']).toBeUndefined()
+        expect(parsed.headers['anthropic-beta']).toBeUndefined()
+        expect(parsed.headers['x-session-affinity']).toBe('ses_000000000000ABCDEFGHIJKLMN')
+    })
+})
