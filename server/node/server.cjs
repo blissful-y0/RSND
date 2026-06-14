@@ -3319,10 +3319,14 @@ app.get('/api/read', async (req, res, next) => {
                     dbCache[filePath] = stripped;
                     value = Buffer.from(encodeRisuSaveLegacy(stripped));
                 } catch (e) {
-                    // Log the Error itself (not just e.message) so logger.*
-                    // tags it and the Express middleware won't re-log after next().
-                    logger.error('[Read] Failed to strip chats from database.bin', e);
-                    return next(e);
+                    // A bad/corrupt save can make the server-side strip pass fail
+                    // before the client has a chance to run its backup fallback.
+                    // Return the raw DB bytes so boot can continue into the
+                    // client decoder/backup recovery path instead of hard-failing
+                    // /api/read with a JSON error.
+                    logger.error('[Read] Failed to strip chats from database.bin; returning raw database bytes', e);
+                    delete dbCache[filePath];
+                    res.setHeader('x-db-read-fallback', 'raw');
                 }
                 dbEtag = computeBufferEtag(value);
                 if (req.headers['if-none-match'] === dbEtag) {
