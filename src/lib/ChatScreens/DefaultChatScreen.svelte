@@ -604,9 +604,9 @@ import { isMobile } from 'src/ts/platform'
     let inputEle:HTMLTextAreaElement = $state()
     let inputTranslateHeight = $state("44px")
     let inputTranslateEle:HTMLTextAreaElement = $state()
-    // Standard theme can float the composer over the message list, but the
-    // existing "fix chat input to bottom" setting still controls whether it is
-    // actually pinned.
+    // A fixed composer is rendered as an overlay for every theme. Keeping the
+    // pinned path out of the reversed scroll container avoids mobile keyboard
+    // and sticky-position quirks.
     let standardTheme = $derived(isStandardTheme(DBState.db.theme))
     let floatingMode = $derived(shouldFloatChatComposer(DBState.db.theme, DBState.db.fixedChatTextarea))
     // Standard theme: composer width follows the configured chat width (matches message cards).
@@ -620,7 +620,7 @@ import { isMobile } from 'src/ts/platform'
     })
     // Chat-area background (bgcolor 25% + darkbg), mirroring nodeonly-standard.css —
     // used for the thin fade above the pill so chat dissolves into the background as
-    // it scrolls past the input edge. Only used on the standard theme (floatingMode).
+    // it scrolls past the input edge. Only used on the standard theme.
     const chatAreaBg = 'color-mix(in srgb, var(--risu-theme-bgcolor) 25%, var(--risu-theme-darkbg))'
     let floatEle:HTMLElement = $state()
     let floatPad = $state("0px")
@@ -639,20 +639,39 @@ import { isMobile } from 'src/ts/platform'
             return
         }
         const viewport = window.visualViewport
+        let baselineHeight = Math.max(window.innerHeight, viewport.height + viewport.offsetTop)
         let raf = 0
         const update = () => {
             if(raf) cancelAnimationFrame(raf)
             raf = requestAnimationFrame(() => {
-                keyboardInset = keyboardInsetFromVisualViewport(window.innerHeight, viewport)
+                const viewportExtent = viewport.height + viewport.offsetTop
+                const active = document.activeElement
+                const inputFocused = active === inputEle || active === inputTranslateEle || active === fullscreenEle
+                if(!inputFocused || viewportExtent > baselineHeight){
+                    baselineHeight = Math.max(baselineHeight, window.innerHeight, viewportExtent)
+                }
+                keyboardInset = keyboardInsetFromVisualViewport(window.innerHeight, viewport, baselineHeight)
             })
+        }
+        const resetBaseline = () => {
+            baselineHeight = Math.max(window.innerHeight, viewport.height + viewport.offsetTop)
+            update()
         }
         update()
         viewport.addEventListener('resize', update)
         viewport.addEventListener('scroll', update)
+        window.addEventListener('resize', update)
+        window.addEventListener('focusin', update)
+        window.addEventListener('focusout', update)
+        window.addEventListener('orientationchange', resetBaseline)
         return () => {
             if(raf) cancelAnimationFrame(raf)
             viewport.removeEventListener('resize', update)
             viewport.removeEventListener('scroll', update)
+            window.removeEventListener('resize', update)
+            window.removeEventListener('focusin', update)
+            window.removeEventListener('focusout', update)
+            window.removeEventListener('orientationchange', resetBaseline)
         }
     })
 
@@ -937,8 +956,7 @@ import { isMobile } from 'src/ts/platform'
     {:else}
         {#snippet composerCluster()}
             <div
-                    class="{floatingMode ? 'pt-2 pb-2' : (DBState.db.fixedChatTextarea ? 'sticky pt-2 pb-2 right-0 bottom-0 bg-bgcolor' : 'mt-2 mb-2')} w-full"
-                    style="{!floatingMode && DBState.db.fixedChatTextarea ? 'z-index:29;' : ''}"
+                    class="{floatingMode ? 'pt-2 pb-2' : 'mt-2 mb-2'} w-full"
             >
               <div class="mx-auto w-full {composerWidthClass} px-2">
                 <!-- "plugin-compat-items-stretch" is a compat hook (not a Tailwind class):
@@ -946,7 +964,7 @@ import { isMobile } from 'src/ts/platform'
                      relied on the pre-redesign container class. Keep it so they can still find/anchor their UI,
                      and it scopes the timer re-flow rules in <style> below. -->
                 <div class="flex flex-wrap items-center gap-1 rounded-3xl border border-darkborderc bg-bgcolor px-2 py-1.5 transition-colors focus-within:border-textcolor plugin-compat-items-stretch"
-                     style:box-shadow={floatingMode ? '0 13px 24px 7px ' + chatAreaBg : ''}>
+                     style:box-shadow={standardTheme && floatingMode ? '0 13px 24px 7px ' + chatAreaBg : ''}>
                 {#if DBState.db.characters[$selectedCharID]?.chaId !== '§playground'}
                     <ShDropdownMenu bind:open={openMenu}>
                         <ShDropdownMenuTrigger>
@@ -1246,7 +1264,7 @@ import { isMobile } from 'src/ts/platform'
                 loadPages += getAdditionalChatLoadPages(DBState.db)
             }
             const chatTarget = e.target as HTMLElement;
-            const chatsContainer = (!floatingMode && DBState.db.fixedChatTextarea && chatTarget.children[1]) ? chatTarget.children[1] : chatTarget.children[0];
+            const chatsContainer = chatTarget.children[0];
             const lastEl = chatsContainer?.firstElementChild;
             const isAtBottom = lastEl ? lastEl.getBoundingClientRect().top <= chatTarget.getBoundingClientRect().bottom + 100 : true;
             if(isAtBottom){
