@@ -2,6 +2,7 @@ import { changeFullscreen, checkNullish } from "./util"
 import { v4 as uuidv4 } from 'uuid';
 import { get } from "svelte/store";
 import { setDatabase, defaultSdDataFunc, getDatabase, changeToThemePreset } from "./storage/database.svelte";
+import { chatDraftKey, sweepOrphanDrafts } from "./storage/chatDraft";
 import { checkRisuUpdate } from "./update";
 import { fetchPublicStats } from "./publicStats";
 import { MobileGUI, botMakerMode, selectedCharID, loadedStore, DBState, LoadingStatusState, bootBackupPromptStore } from "./stores.svelte";
@@ -18,7 +19,6 @@ import { updateGuisize } from "./gui/guisize";
 import { updateLorebooks } from "./characters";
 import { initMobileGesture } from "./hotkey";
 import { moduleUpdate } from "./process/modules";
-import { removeUnusedCharacterAssets } from "./assetCleanup";
 import {
     forageStorage,
     saveDb,
@@ -29,7 +29,6 @@ import {
     checkCharOrder
 } from "./globalApi.svelte";
 import { registerModelDynamic } from "./model/modellist";
-import { isNodeServer } from "./platform";
 import { convertStubsToPlaceholders } from "./storage/chatStorage";
 import { isChatStub, purgeUnsupportedGroupChats } from "./storage/database.svelte";
 
@@ -305,7 +304,6 @@ function updateHeightMode() {
  */
 async function checkNewFormat(): Promise<void> {
     let db = getDatabase();
-    const expiredCharacters = []
 
     // Check data integrity
     db.characters = db.characters.map((v) => {
@@ -475,16 +473,24 @@ async function checkNewFormat(): Promise<void> {
         const trashTime = db.characters[i].trashTime;
         const targetTrashTime = trashTime ? trashTime + 1000 * 60 * 60 * 24 * 3 : 0;
         if (trashTime && targetTrashTime < Date.now()) {
-            expiredCharacters.push(db.characters[i]);
             db.characters.splice(i, 1);
             i--;
         }
     }
     setDatabase(db);
     checkCharOrder();
-    for (const expiredCharacter of expiredCharacters) {
-        await removeUnusedCharacterAssets(expiredCharacter, db)
+
+    // One-pass cleanup of composer drafts whose chat no longer exists (deleted
+    // chats/characters, trash purge, plugin/script removals). Replaces per-delete
+    // wiring: any orphan, however it was created, is swept here at boot.
+    const validDraftKeys = new Set<string>();
+    for (const char of db.characters) {
+        if (!char?.chaId) continue;
+        for (const chat of char.chats ?? []) {
+            if (chat?.id) validDraftKeys.add(chatDraftKey(char.chaId, chat.id));
+        }
     }
+    void sweepOrphanDrafts(validDraftKeys);
 }
 
 /**
@@ -503,11 +509,6 @@ async function cleanChunks() {
             continue
         }
         else if (asset.startsWith('assets/')) {
-            // NodeOnly assets live in shared server storage, so a stale client must
-            // never prune them during boot cleanup.
-            if (isNodeServer) {
-                continue
-            }
             const n = getBasename(asset)
             if(!uncleanable.has(n)) {
                 await forageStorage.removeItem(asset)

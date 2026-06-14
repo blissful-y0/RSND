@@ -2,7 +2,7 @@ import { Sha256 } from "@aws-crypto/sha256-js"
 import { HttpRequest } from "@smithy/protocol-http"
 import { SignatureV4 } from "@smithy/signature-v4"
 import { fetchNative, globalFetch, textifyReadableStream } from "src/ts/globalApi.svelte"
-import { LLMFlags, LLMFormat, LLMProvider } from "src/ts/model/modellist"
+import { LLMFlags, LLMFormat } from "src/ts/model/modellist"
 import { registerClaudeObserver } from "src/ts/observer.svelte"
 import { getDatabase } from "src/ts/storage/database.svelte"
 import { replaceAsync, simplifySchema, sleep } from "src/ts/util"
@@ -360,35 +360,22 @@ export async function requestClaude(arg:RequestDataArgumentExtended):Promise<req
     })
 
     // Handle thinking mode: off, adaptive, or budget
-    const supportsLegacyThinking = arg.modelInfo.flags.includes(LLMFlags.claudeThinking)
-    const supportsAdaptiveThinking = arg.modelInfo.flags.includes(LLMFlags.claudeAdaptiveThinking)
-
-    const applyAdaptiveThinking = () => {
-        delete body.thinking
-        body.thinking = {
-            type: 'adaptive',
-            display: db.adaptiveThinkingDisplay ?? 'summarized',
-        }
-        body.output_config = { effort: db.adaptiveThinkingEffort ?? 'high' }
-    }
-
     if(db.thinkingType === 'off'){
         delete body.thinking
     }
-    else if(db.thinkingType === 'adaptive' && supportsAdaptiveThinking){
-        applyAdaptiveThinking()
+    else if(db.thinkingType === 'adaptive' && arg.modelInfo.flags.includes(LLMFlags.claudeAdaptiveThinking)){
+        // Adaptive thinking mode
+        delete body.thinking
+        body.thinking = { type: 'adaptive' }
+        body.output_config = { effort: db.adaptiveThinkingEffort ?? 'high' }
+    }
+    else if(body?.thinking?.budget_tokens === 0){
+        delete body.thinking
     }
     else if(body?.thinking?.budget_tokens && body?.thinking?.budget_tokens > 0){
-        if(supportsLegacyThinking){
-            body.thinking.type = 'enabled'
-        } else if(supportsAdaptiveThinking){
-            // Model dropped legacy budget thinking (e.g. Claude 4.7+); fall back to adaptive
-            applyAdaptiveThinking()
-        } else {
-            delete body.thinking
-        }
+        body.thinking.type = 'enabled'
     }
-    else {
+    else if(body?.thinking?.budget_tokens === null){
         delete body.thinking
     }
 
@@ -495,8 +482,7 @@ export async function requestClaude(arg:RequestDataArgumentExtended):Promise<req
             plainFetchForce: true,
             chatId: arg.chatId,
             abortSignal: arg.abortSignal,
-            interceptor: 'anthropic_bedrock',
-            proxyPolicy: arg.proxyPolicy,
+            interceptor: 'anthropic_bedrock'
         })
 
         if(!res.ok){
@@ -575,25 +561,6 @@ export async function requestClaude(arg:RequestDataArgumentExtended):Promise<req
         headers['anthropic-dangerous-direct-browser-access'] = 'true'
     }
 
-    const usesCopilotHeaders = !!arg.extraHeaders && (
-        arg.modelInfo?.provider === LLMProvider.Copilot ||
-        arg.modelInfo?.provider === LLMProvider.LLMGateway
-    )
-
-    if(usesCopilotHeaders){
-        const {
-            'anthropic-beta': _anthropicBeta,
-            'anthropic-version': _anthropicVersion,
-            'anthropic-dangerous-direct-browser-access': _anthropicDangerousDirectBrowserAccess,
-            'x-api-key': _xApiKey,
-            ...cleanHeaders
-        } = headers
-        headers = { ...cleanHeaders, ...arg.extraHeaders }
-    }
-    else if(arg.extraHeaders){
-        headers = { ...headers, ...arg.extraHeaders }
-    }
-
     if(arg.tools && arg.tools.length > 0){
         body.tools = arg.tools.map((v) => {
             return {
@@ -620,7 +587,7 @@ export async function requestClaude(arg:RequestDataArgumentExtended):Promise<req
         betas.push('extended-cache-ttl-2025-04-11')
     }
 
-    if(betas.length > 0 && !hasCustomAnthropicBeta && !usesCopilotHeaders){
+    if(betas.length > 0 && !hasCustomAnthropicBeta){
         headers['anthropic-beta'] = betas.join(',')
     }
 
@@ -650,8 +617,7 @@ export async function requestClaude(arg:RequestDataArgumentExtended):Promise<req
             "method": "POST",
             signal: arg.abortSignal,
             headers: headers,
-            interceptor: 'anthropic_batching',
-            proxyPolicy: arg.proxyPolicy,
+            interceptor: 'anthropic_batching'
         })
 
         if(resp.status !== 200){
@@ -693,8 +659,7 @@ export async function requestClaude(arg:RequestDataArgumentExtended):Promise<req
                                     "body": "{}",
                                     "method": "POST",
                                     "headers": headers,
-                                    "interceptor": 'anthropic_batching_cancel',
-                                    "proxyPolicy": arg.proxyPolicy,
+                                    "interceptor": 'anthropic_batching_cancel'
                                 })
                             } catch(e) {
                                 // ignore cancel request errors
@@ -709,8 +674,7 @@ export async function requestClaude(arg:RequestDataArgumentExtended):Promise<req
                             "method": "GET",
                             "headers": headers,
                             "signal": cancelRequested ? undefined : abortSignal,
-                            "interceptor": 'anthropic_batching_status',
-                            "proxyPolicy": arg.proxyPolicy,
+                            "interceptor": 'anthropic_batching_status'
                         })
 
                         if(statusRes.status !== 200){
@@ -728,8 +692,7 @@ export async function requestClaude(arg:RequestDataArgumentExtended):Promise<req
                             "method": "GET",
                             "headers": headers,
                             "signal": cancelRequested ? undefined : abortSignal,
-                            "interceptor": 'anthropic_batching_results',
-                            "proxyPolicy": arg.proxyPolicy,
+                            "interceptor": 'anthropic_batching_results'
                         })
 
                         if(batchRes.status !== 200){
@@ -840,8 +803,7 @@ async function requestClaudeHTTP(replacerURL:string, headers:{[key:string]:strin
             method: "POST",
             chatId: arg.chatId,
             signal: arg.abortSignal,
-            interceptor: 'anthropic_streaming',
-            proxyPolicy: arg.proxyPolicy,
+            interceptor: 'anthropic_streaming'
         })
 
         if(res.status !== 200){
@@ -939,8 +901,7 @@ async function requestClaudeHTTP(replacerURL:string, headers:{[key:string]:strin
                                         method: "POST",
                                         chatId: arg.chatId,
                                         signal: arg.abortSignal,
-                                        interceptor: 'anthropic_streaming_retry',
-                                        proxyPolicy: arg.proxyPolicy,
+                                        interceptor: 'anthropic_streaming_retry'
                                     })
                             
                                     if(res.status !== 200){
@@ -993,9 +954,7 @@ async function requestClaudeHTTP(replacerURL:string, headers:{[key:string]:strin
         method: "POST",
         chatId: arg.chatId,
         abortSignal: arg.abortSignal,
-        interceptor: 'anthropic_http',
-        plainFetchDeforce: !!arg.extraHeaders,
-        proxyPolicy: arg.proxyPolicy,
+        interceptor: 'anthropic_http'
     })
 
     if(!res.ok){

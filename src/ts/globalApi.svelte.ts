@@ -2,6 +2,7 @@ import { changeFullscreen, checkNullish, sleep } from "./util"
 import { v4 as uuidv4, v4 } from 'uuid';
 import { tick } from "svelte";
 import { get } from "svelte/store";
+import streamSaver from 'streamsaver';
 import { setDatabase, type Database, defaultSdDataFunc, getDatabase, appVer, nodeOnlyVer, getCurrentCharacter, loadTogglesFromChat } from "./storage/database.svelte";
 import { checkRisuUpdate } from "./update";
 import { MobileGUI, botMakerMode, selectedCharID, loadedStore, DBState, LoadingStatusState, selIdState, ReloadGUIPointer, bodyIntercepterStore, loadingOverlayStore, chatDeselected } from "./stores.svelte";
@@ -20,12 +21,12 @@ import { updateColorScheme, updateTextThemeAndCSS } from "./gui/colorscheme";
 import { language } from "src/lang";
 import { startObserveDom } from "./observer.svelte";
 import { updateGuisize } from "./gui/guisize";
+import { deepTouch } from "./gui/deepTouch.svelte";
 import { updateLorebooks } from "./characters";
 import { initMobileGesture } from "./hotkey";
 import { moduleUpdate } from "./process/modules";
 import { isLocalNetworkUrl } from "./network/localNetwork";
 import { decodeProxyJobWsChunk, formatProxyStreamErrorMessage, parseProxyJobWsEvent } from "./network/proxyJobWs";
-import { getFetchNativeTransport, shouldUseProxyForFetchNative, shouldUseProxyForGlobalFetch, type ProxyPolicy } from "./network/proxyPolicy";
 
 export const forageStorage = new AutoStorage()
 
@@ -394,7 +395,7 @@ export async function saveDb() {
         }
     }
     // Cross-device single-writer lock: mirrors BroadcastChannel behavior
-    // across devices via server-side session check (423 -> deactivate)
+    // across devices via server-side session check (423 → deactivate)
     window.addEventListener('risu-session-deactivated', () => {
         if (!gotChannel) {
             gotChannel = true
@@ -403,6 +404,7 @@ export async function saveDb() {
             })
         }
     })
+
     const changeTracker: toSaveType = {
         character: [],
         chat: [],
@@ -448,14 +450,12 @@ export async function saveDb() {
         return toSave
     }
 
-    function flushServerDbKeepalive() {
+    async function flushServerDbKeepalive() {
         try {
-            const authHeader = forageStorage.getCachedAuthForKeepalive()
             fetch('/api/db/flush', {
                 method: 'POST',
                 keepalive: true,
-                credentials: 'same-origin',
-                headers: authHeader ? { 'risu-auth': authHeader } : undefined
+                credentials: 'same-origin'
             }).catch(() => {})
         } catch {
             // ignore best-effort flush failures
@@ -513,7 +513,7 @@ export async function saveDb() {
                     key !== 'characters' && key !== 'botPresets' && key !== 'modules' &&
                     key !== 'plugins' && key !== 'pluginCustomStorage'
                 ) {
-                    $state.snapshot(DBState.db[key])
+                    deepTouch(DBState.db[key])
                 }
             }
             if (!didInitRootEffect) {
@@ -525,8 +525,8 @@ export async function saveDb() {
         })
         $effect(() => {
             DBState.db.botPresetsId
-            try { $state.snapshot(DBState.db.botPresets) } catch (e) {
-                console.warn('[Save] $state.snapshot(botPresets) failed:', e)
+            try { deepTouch(DBState.db.botPresets) } catch (e) {
+                console.warn('[Save] deepTouch(botPresets) failed:', e)
                 return
             }
             if (!didInitBotPresetEffect) {
@@ -537,8 +537,8 @@ export async function saveDb() {
             saveTimeoutExecute()
         })
         $effect(() => {
-            try { $state.snapshot(DBState.db.modules) } catch (e) {
-                console.warn('[Save] $state.snapshot(modules) failed:', e)
+            try { deepTouch(DBState.db.modules) } catch (e) {
+                console.warn('[Save] deepTouch(modules) failed:', e)
                 return
             }
             if (!didInitModulesEffect) {
@@ -549,7 +549,7 @@ export async function saveDb() {
             saveTimeoutExecute()
         })
         $effect(() => {
-            $state.snapshot(DBState.db.plugins)
+            deepTouch(DBState.db.plugins)
             if (!didInitPluginsEffect) {
                 didInitPluginsEffect = true
                 return
@@ -558,7 +558,7 @@ export async function saveDb() {
             saveTimeoutExecute()
         })
         $effect(() => {
-            $state.snapshot(DBState.db.pluginCustomStorage)
+            deepTouch(DBState.db.pluginCustomStorage)
             if (!didInitPluginStorageEffect) {
                 didInitPluginStorageEffect = true
                 return
@@ -568,7 +568,7 @@ export async function saveDb() {
         })
         $effect(() => {
             const currentCharacterIds = (DBState?.db?.characters ?? []).map((character) => character?.chaId).filter(Boolean)
-            $state.snapshot(currentCharacterIds)
+            deepTouch(currentCharacterIds)
 
             const currentCharacterIdSet = new Set<string>(currentCharacterIds)
             for (const previousCharacterId of knownCharacterIds) {
@@ -582,11 +582,11 @@ export async function saveDb() {
                 for (const key in DBState.db.characters[selIdState]) {
                     // Exclude chats — chat changes are tracked via chat-specific server save, not database.bin
                     if (key !== 'chats') {
-                        $state.snapshot(DBState.db.characters[selIdState][key])
+                        deepTouch(DBState.db.characters[selIdState][key])
                     }
                 }
                 // Track stub metadata and chat ordering for database.bin persistence.
-                $state.snapshot(DBState.db.characters[selIdState].chats.map(c => ({
+                deepTouch(DBState.db.characters[selIdState].chats.map(c => ({
                     id: c.id,
                     name: c.name,
                     lastDate: c.lastDate,
@@ -608,7 +608,7 @@ export async function saveDb() {
             const activeChar = DBState?.db?.characters?.[selIdState]
             const activeChat = activeChar?.chats?.[activeChar?.chatPage]
             if (activeChat) {
-                $state.snapshot(activeChat)
+                deepTouch(activeChat)
             }
 
             const activeChaId = activeChar?.chaId ?? ''
@@ -1182,7 +1182,6 @@ const knownHostes = ["localhost", "127.0.0.1", "0.0.0.0"];
 interface GlobalFetchArgs {
     plainFetchForce?: boolean;
     plainFetchDeforce?: boolean;
-    proxyPolicy?: ProxyPolicy;
     body?: any;
     headers?: { [key: string]: string };
     rawResponse?: boolean;
@@ -1262,14 +1261,7 @@ export async function globalFetch(url: string, arg: GlobalFetchArgs = {}): Promi
 
         const urlHost = new URL(url).hostname
         const useLocalNetworkRoute = arg.networkRoute === 'local_network' && isLocalNetworkUrl(url)
-        const shouldUseProxy = shouldUseProxyForGlobalFetch({
-            dbUsePlainFetch: db.usePlainFetch,
-            knownHostMatch: knownHostes.includes(urlHost),
-            plainFetchForce: arg.plainFetchForce,
-            plainFetchDeforce: arg.plainFetchDeforce,
-            useLocalNetworkRoute,
-            proxyPolicy: arg.proxyPolicy,
-        })
+        const forcePlainFetch = ((knownHostes.includes(urlHost)) || db.usePlainFetch || arg.plainFetchForce) && !arg.plainFetchDeforce && !useLocalNetworkRoute
 
         if(arg.interceptor){
             for (const interceptor of bodyIntercepterStore) {
@@ -1292,11 +1284,11 @@ export async function globalFetch(url: string, arg: GlobalFetchArgs = {}): Promi
                 return await fetchWithProxy(url, requestArg);
             }
 
-            if (!shouldUseProxy) {
+            if (forcePlainFetch) {
                 return await fetchWithPlainFetch(url, requestArg);
             }
             //userScriptFetch is provided by userscript
-            if (window.userScriptFetch && !arg.plainFetchDeforce && arg.proxyPolicy !== 'always') {
+            if (window.userScriptFetch && !arg.plainFetchDeforce) {
                 return await fetchWithUSFetch(url, requestArg);
             }
             return await fetchWithProxy(url, requestArg);
@@ -1530,12 +1522,27 @@ export function getUncleanables(db: Database, uptype: 'basename' | 'pure' = 'bas
                     addUncleanable(asset[1])
                 }
             }
+            if(module.icon){
+                addUncleanable(module.icon)
+            }
         }
     }
 
     if (db.personas) {
         db.personas.map((v) => {
             addUncleanable(v.icon);
+
+            if(v.embeddedModule){
+                const assets = v.embeddedModule.assets
+                if (assets) {
+                    for (const asset of assets) {
+                        addUncleanable(asset[1])
+                    }
+                }
+                if(v.embeddedModule.icon){
+                    addUncleanable(v.embeddedModule.icon)
+                }
+            }
         });
     }
 
@@ -1733,7 +1740,6 @@ export class LocalWriter {
      * @returns {Promise<boolean>} - A promise that resolves to a boolean indicating success.
      */
     async init(name = 'Binary', ext = ['bin']): Promise<boolean> {
-        const streamSaver = await import('streamsaver')
         const writableStream = streamSaver.createWriteStream(name + '.' + ext[0])
         this.writer = writableStream.getWriter()
         return true
@@ -2001,7 +2007,6 @@ export async function fetchNative(url: string, arg: {
     interceptor?: string
     requestTimeoutMs?: number
     networkRoute?: 'auto' | 'local_network'
-    proxyPolicy?: ProxyPolicy
 }): Promise<Response> {
     const useInterceptor = !!arg.interceptor
     if (arg.body === undefined && (arg.method === 'POST' || arg.method === 'PUT')) {
@@ -2053,18 +2058,13 @@ export async function fetchNative(url: string, arg: {
     const timeoutSignal = buildTimeoutSignal(arg.signal, arg.requestTimeoutMs)
     const requestSignal = timeoutSignal.signal
     const db = getDatabase()
-    const throughProxy = shouldUseProxyForFetchNative({
-        dbUsePlainFetch: db.usePlainFetch,
-        useLocalNetworkRoute,
-        proxyPolicy: arg.proxyPolicy,
-    })
-    const fetchTransport = getFetchNativeTransport({
-        throughProxy,
-        hasUserScriptFetch: !!window.userScriptFetch,
-    })
+    let throughProxy = !db.usePlainFetch
+    if (useLocalNetworkRoute) {
+        throughProxy = true
+    }
 
     try {
-        if (fetchTransport === 'userscript') {
+        if (window.userScriptFetch && !throughProxy) {
             return await window.userScriptFetch(url, {
                 body: realBody as any,
                 headers: headers,
@@ -2093,13 +2093,6 @@ export async function fetchNative(url: string, arg: {
 
         // Local network non-streaming or WS fallback: go through /proxy2 directly
         if (useLocalNetworkRoute) {
-            return await fetchViaProxy2(url, headers, realBody, {
-                ...arg,
-                signal: requestSignal
-            })
-        }
-
-        if (fetchTransport === 'proxy') {
             return await fetchViaProxy2(url, headers, realBody, {
                 ...arg,
                 signal: requestSignal

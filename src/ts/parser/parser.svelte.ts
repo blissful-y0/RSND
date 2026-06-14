@@ -464,7 +464,8 @@ export function resetAssetsCache(charAssets: string[][], emoAssets: string[][], 
 $effect.root(() => {
     $effect(() => {
         const charId = selIdState?.selId
-        const char = charId == null ? null : DBState?.db?.characters?.[charId]
+        if (charId === undefined) return
+        const char = DBState.db.characters?.[charId]
         if (!char || char.type !== 'character') {
             return
         }

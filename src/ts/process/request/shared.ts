@@ -1,8 +1,4 @@
 import { getDatabase } from 'src/ts/storage/database.svelte'
-import {
-    dbReasoningEffortToApi,
-    dbVerbosityToApi,
-} from 'src/ts/model/reasoningVerbosity'
 
 export type LLMParameter =
     | 'temperature'
@@ -32,33 +28,6 @@ export function setObjectValue<T>(obj: T, key: string, value: any): T {
 
     obj[key] = value
     return obj
-}
-
-export function getReasoningEffortParameterValue(
-    modelMode: ModelModeExtended,
-    arg: {
-        modelId:string
-    },
-): number | null | undefined {
-    const db = getDatabase()
-
-    if (db.seperateParametersEnabled && (modelMode !== 'model' || db.seperateParametersByModel)) {
-        let sepParams = db.seperateParameters[modelMode]
-        if (db.seperateParametersByModel){
-            sepParams = db.seperateParameters.overrides[arg.modelId]
-
-            if(!sepParams){
-                throw new Error(`No seperate parameters found for model ${arg.modelId} in model mode ${modelMode}. Please set parameters for this model`)
-            }
-        }
-        if (modelMode === 'submodel') {
-            sepParams = db.seperateParameters['otherAx']
-        }
-
-        return sepParams?.reasoning_effort
-    }
-
-    return db.reasoningEffort
 }
 
 export function getAdditionalParameters(aiModel?: string): [string, string][] {
@@ -151,6 +120,31 @@ export function applyAdditionalParameters<T extends Record<string, any>>(
     return body
 }
 
+// Drain a streaming response to its final text. Every chunk on the
+// requestDataResponse boundary carries the FULL accumulated text in its first
+// key (deltas are folded upstream), so the last chunk holds the complete reply.
+// Used by callers that requested a streaming wire request but want a single
+// string result (trigger/Lua collectors, per-preset decoupled streaming).
+export async function collectStreamingText(stream: ReadableStream<{ [key: string]: string }>): Promise<string> {
+    const reader = stream.getReader()
+    let lastChunk = ''
+
+    while (true) {
+        const { done, value } = await reader.read()
+        if (value) {
+            const firstKey = Object.keys(value)[0]
+            if (firstKey) {
+                lastChunk = value[firstKey] ?? lastChunk
+            }
+        }
+        if (done) {
+            break
+        }
+    }
+
+    return lastChunk
+}
+
 export function applyParameters(
     data: Record<string, any>,
     parameters: LLMParameter[],
@@ -158,11 +152,47 @@ export function applyParameters(
     modelMode: ModelModeExtended,
     arg: {
         ignoreTopKIfZero?: boolean
-        omitNoneReasoningEffort?: boolean
         modelId:string
     },
 ): Record<string, any> {
     const db = getDatabase()
+
+    function getEffort(effort: number) {
+        switch (effort) {
+            case -1: {
+                return 'minimal'
+            }
+            case 0: {
+                return 'low'
+            }
+            case 1: {
+                return 'medium'
+            }
+            case 2: {
+                return 'high'
+            }
+            default: {
+                return 'medium'
+            }
+        }
+    }
+
+    function getVerbosity(verbosity: number) {
+        switch (verbosity) {
+            case 0: {
+                return 'low'
+            }
+            case 1: {
+                return 'medium'
+            }
+            case 2: {
+                return 'high'
+            }
+            default: {
+                return 'medium'
+            }
+        }
+    }
 
     if (db.seperateParametersEnabled && (modelMode !== 'model' || db.seperateParametersByModel)) {
         let sepParams = db.seperateParameters[modelMode]
@@ -178,17 +208,7 @@ export function applyParameters(
         }
 
         for (const parameter of parameters) {
-            const rawValue = sepParams[parameter]
-            if (
-                rawValue === -1000 ||
-                rawValue === undefined ||
-                rawValue === null ||
-                (typeof rawValue === 'number' && isNaN(rawValue))
-            ) {
-                continue
-            }
-
-            let value: number | string | undefined = 0
+            let value: number | string = 0
             if (parameter === 'top_k' && arg.ignoreTopKIfZero && sepParams[parameter] === 0) {
                 continue
             }
@@ -240,11 +260,11 @@ export function applyParameters(
                     break
                 }
                 case 'reasoning_effort': {
-                    value = dbReasoningEffortToApi(sepParams.reasoning_effort)
+                    value = getEffort(sepParams.reasoning_effort)
                     break
                 }
                 case 'verbosity': {
-                    value = dbVerbosityToApi(sepParams.verbosity)
+                    value = getVerbosity(sepParams.verbosity)
                     break
                 }
             }
@@ -253,7 +273,6 @@ export function applyParameters(
                 value === -1000 ||
                 value === undefined ||
                 value === null ||
-                (parameter === 'reasoning_effort' && value === 'none' && arg.omitNoneReasoningEffort) ||
                 (typeof value === 'number' && isNaN(value))
             ) {
                 continue
@@ -295,11 +314,11 @@ export function applyParameters(
                 break
             }
             case 'reasoning_effort': {
-                value = dbReasoningEffortToApi(db.reasoningEffort)
+                value = getEffort(db.reasoningEffort)
                 break
             }
             case 'verbosity': {
-                value = dbVerbosityToApi(db.verbosity)
+                value = getVerbosity(db.verbosity)
                 break
             }
             case 'frequency_penalty': {
@@ -316,13 +335,7 @@ export function applyParameters(
             }
         }
 
-        if (
-            value === -1000 ||
-            value === undefined ||
-            value === null ||
-            (parameter === 'reasoning_effort' && value === 'none' && arg.omitNoneReasoningEffort) ||
-            (typeof value === 'number' && isNaN(value))
-        ) {
+        if (value === -1000) {
             continue
         }
 

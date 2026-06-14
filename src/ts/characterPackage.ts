@@ -405,10 +405,6 @@ export async function exportCharacterPackage(
             alertError('Character not found')
             return
         }
-        if ((char as any).type === 'group') {
-            alertError('Cannot export group characters as package')
-            return
-        }
 
         const charName = sanitizeFilename(char.name || 'character')
 
