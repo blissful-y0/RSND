@@ -1,9 +1,6 @@
 name: Create GitHub Release with Portable Packages
 
 on:
-  push:
-    tags:
-      - 'v*'
   workflow_dispatch:
 
 permissions:
