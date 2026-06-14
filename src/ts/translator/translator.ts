@@ -302,9 +302,8 @@ export async function translateHTML(html: string, reverse:boolean, charArg:simpl
     if(db.translatorType === 'llm'){
         const tr = db.translator || 'en'
         const from = db.translatorInputLanguage
-        let translated = false
-        const r = await translateLLM(html, {to: tr, from: from, regenerate, onCacheState: (cached) => { translated = !cached }})
-        if(translated && db.playMessageOnTranslateEnd){
+        const r = await translateLLM(html, {to: tr, from: from, regenerate})
+        if(db.playMessageOnTranslateEnd){
             playNotificationSound(db.translateSound, db.translateSoundVolume)
         }
 
@@ -517,16 +516,14 @@ function needSuperChunkedTranslate(){
     return getDatabase().translatorType === 'deeplX'
 }
 
-async function translateLLM(text:string, arg:{to:string, from:string, regenerate?:boolean,translatorNote?:string, onCacheState?:(cached:boolean) => void}):Promise<string>{
+async function translateLLM(text:string, arg:{to:string, from:string, regenerate?:boolean,translatorNote?:string}):Promise<string>{
     if(!arg.regenerate){
         const cacheMatch = llmTranslateCache.get(text)
         if(cacheMatch){
-            arg.onCacheState?.(true)
             return cacheMatch
         }
         const persistedCacheMatch = await getPersistentLLMCache(text)
         if (persistedCacheMatch !== null) {
-            arg.onCacheState?.(true)
             return persistedCacheMatch
         }
     }
@@ -593,7 +590,6 @@ async function translateLLM(text:string, arg:{to:string, from:string, regenerate
     }).replace(/<\/style-data>/g, '')
     llmTranslateCache.set(text, result)
     void setPersistentLLMCache(text, result)
-    arg.onCacheState?.(false)
     return result
 }
 

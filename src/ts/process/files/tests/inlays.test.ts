@@ -103,8 +103,6 @@ vi.mock(
     () =>
         ({
             asBuffer: (arr: Uint8Array) => arr,
-            // modules.ts (pulled in via the stores $effect) imports this from util
-            checkPersonaBinded: () => null,
         }) as typeof import('src/ts/util'),
 )
 

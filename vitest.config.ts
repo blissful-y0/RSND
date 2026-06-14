@@ -14,7 +14,7 @@ export default mergeConfig(
     },
     test: {
       environment: 'happy-dom',
-      exclude: [...configDefaults.exclude, 'test/compat/**/*.test.ts', 'server/node/**/*.test.ts', '.worktrees/**'],
+      exclude: [...configDefaults.exclude, 'test/compat/**/*.test.ts', '.worktrees/**'],
       setupFiles: ['src/ts/polyfill.ts', 'vitest.setup.ts'],
     },
   })

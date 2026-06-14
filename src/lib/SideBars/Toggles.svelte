@@ -118,11 +118,7 @@
         void DBState.db.enabledModules
         void DBState.db.moduleIntergration
 
-        const ungrouped = parseToggleSyntax(
-            DBState.db.customPromptTemplateToggle + '\n' +
-            getModuleToggles() + '\n' +
-            ((DBState.db?.characters?.[$selectedCharID] as character)?.customModuleToggle ?? '')
-        )
+        const ungrouped = parseToggleSyntax(DBState.db.customPromptTemplateToggle + getModuleToggles())
 
         let groupOpen = false
         // group toggles together between group ... groupEnd
