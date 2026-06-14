@@ -41,6 +41,8 @@ import { isMobile } from 'src/ts/platform'
     import PluginDefinedIcon from '../Others/PluginDefinedIcon.svelte';
     import {
         chatComposerPadding,
+        chatComposerContainerClass,
+        chatComposerContainerStyle,
         chatComposerWidthClass,
         isStandardTheme,
         keyboardInsetFromVisualViewport,
@@ -956,7 +958,8 @@ import { isMobile } from 'src/ts/platform'
     {:else}
         {#snippet composerCluster()}
             <div
-                    class="{floatingMode ? 'pt-2 pb-2' : 'mt-2 mb-2'} w-full"
+                    class={chatComposerContainerClass(floatingMode, DBState.db.fixedChatTextarea)}
+                    style={chatComposerContainerStyle(floatingMode, DBState.db.fixedChatTextarea)}
             >
               <div class="mx-auto w-full {composerWidthClass} px-2">
                 <!-- "plugin-compat-items-stretch" is a compat hook (not a Tailwind class):
@@ -1264,7 +1267,7 @@ import { isMobile } from 'src/ts/platform'
                 loadPages += getAdditionalChatLoadPages(DBState.db)
             }
             const chatTarget = e.target as HTMLElement;
-            const chatsContainer = chatTarget.children[0];
+            const chatsContainer = (!floatingMode && DBState.db.fixedChatTextarea && chatTarget.children[1]) ? chatTarget.children[1] : chatTarget.children[0];
             const lastEl = chatsContainer?.firstElementChild;
             const isAtBottom = lastEl ? lastEl.getBoundingClientRect().top <= chatTarget.getBoundingClientRect().bottom + 100 : true;
             if(isAtBottom){

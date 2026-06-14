@@ -9,8 +9,23 @@ export function isStandardTheme(theme: string): boolean {
     return theme === ''
 }
 
-export function shouldFloatChatComposer(_theme: string, fixedChatTextarea: boolean): boolean {
-    return fixedChatTextarea
+export function shouldFloatChatComposer(_theme: string, _fixedChatTextarea: boolean): boolean {
+    return false
+}
+
+export function chatComposerContainerClass(floating: boolean, fixedChatTextarea: boolean): string {
+    let layoutClass = 'mt-2 mb-2'
+    if(floating){
+        layoutClass = 'pt-2 pb-2'
+    } else if(fixedChatTextarea){
+        layoutClass = 'sticky pt-2 pb-2 right-0 bottom-0 bg-bgcolor'
+    }
+
+    return `${layoutClass} w-full`
+}
+
+export function chatComposerContainerStyle(floating: boolean, fixedChatTextarea: boolean): string {
+    return !floating && fixedChatTextarea ? 'z-index:29;' : ''
 }
 
 export function chatComposerWidthClass(theme: string, width: StandardChatWidth): string {

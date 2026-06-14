@@ -1,16 +1,22 @@
 import { describe, expect, test } from 'vitest'
 import {
     chatComposerPadding,
+    chatComposerContainerClass,
+    chatComposerContainerStyle,
     chatComposerWidthClass,
     keyboardInsetFromVisualViewport,
     shouldFloatChatComposer,
 } from './chatComposerLayout'
 
 describe('chat composer layout', () => {
-    test('floats every theme composer when bottom pinning is enabled', () => {
-        expect(shouldFloatChatComposer('', true)).toBe(true)
+    test('keeps fixed composer in the scroll flow instead of floating it', () => {
+        expect(shouldFloatChatComposer('', true)).toBe(false)
         expect(shouldFloatChatComposer('', false)).toBe(false)
-        expect(shouldFloatChatComposer('custom-theme', true)).toBe(true)
+        expect(shouldFloatChatComposer('custom-theme', true)).toBe(false)
+        expect(chatComposerContainerClass(false, true)).toBe('sticky pt-2 pb-2 right-0 bottom-0 bg-bgcolor w-full')
+        expect(chatComposerContainerStyle(false, true)).toBe('z-index:29;')
+        expect(chatComposerContainerClass(false, false)).toBe('mt-2 mb-2 w-full')
+        expect(chatComposerContainerStyle(false, false)).toBe('')
     })
 
     test('keeps standard theme width classes independent from floating mode', () => {
