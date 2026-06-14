@@ -1446,6 +1446,24 @@ const loginRouteLimiter = rateLimit({
     validate: { xForwardedForHeader: false }
 });
 
+const proxyRouteLimiter = rateLimit({
+    windowMs: 30 * 1000,
+    max: 120,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: 'Too many proxy requests. Please wait and try again later.' },
+    validate: { xForwardedForHeader: false }
+});
+
+const dashboardStatsRouteLimiter = rateLimit({
+    windowMs: 30 * 1000,
+    max: 60,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: 'Too many dashboard stat requests. Please wait and try again later.' },
+    validate: { xForwardedForHeader: false }
+});
+
 function isHex(str) {
     return hexRegex.test(str.toUpperCase().trim()) || str === '__password';
 }
@@ -2836,20 +2854,20 @@ async function hubProxyFunc(req, res) {
     }
 }
 
-app.get('/proxy', reverseProxyFunc_get);
-app.get('/proxy2', reverseProxyFunc_get);
-app.get('/hub-proxy/*', hubProxyFunc);
+app.get('/proxy', proxyRouteLimiter, reverseProxyFunc_get);
+app.get('/proxy2', proxyRouteLimiter, reverseProxyFunc_get);
+app.get('/hub-proxy/*', proxyRouteLimiter, hubProxyFunc);
 
-app.post('/proxy', reverseProxyFunc);
-app.post('/proxy2', reverseProxyFunc);
-app.put('/proxy', reverseProxyFunc);
-app.put('/proxy2', reverseProxyFunc);
-app.delete('/proxy', reverseProxyFunc);
-app.delete('/proxy2', reverseProxyFunc);
-app.post('/hub-proxy/*', hubProxyFunc);
+app.post('/proxy', proxyRouteLimiter, reverseProxyFunc);
+app.post('/proxy2', proxyRouteLimiter, reverseProxyFunc);
+app.put('/proxy', proxyRouteLimiter, reverseProxyFunc);
+app.put('/proxy2', proxyRouteLimiter, reverseProxyFunc);
+app.delete('/proxy', proxyRouteLimiter, reverseProxyFunc);
+app.delete('/proxy2', proxyRouteLimiter, reverseProxyFunc);
+app.post('/hub-proxy/*', proxyRouteLimiter, hubProxyFunc);
 
 // --- Proxy Stream Job endpoints ---
-app.post('/proxy-stream-jobs', async (req, res) => {
+app.post('/proxy-stream-jobs', proxyRouteLimiter, async (req, res) => {
     if (!await checkProxyAuth(req, res)) {
         return;
     }
@@ -2898,7 +2916,7 @@ app.post('/proxy-stream-jobs', async (req, res) => {
     });
 });
 
-app.delete('/proxy-stream-jobs/:jobId', async (req, res) => {
+app.delete('/proxy-stream-jobs/:jobId', proxyRouteLimiter, async (req, res) => {
     if (!await checkProxyAuth(req, res)) {
         return;
     }
@@ -4936,7 +4954,7 @@ async function estimateServerBackupSize() {
     return total;
 }
 
-app.get('/api/db/stats', async (req, res, next) => {
+app.get('/api/db/stats', dashboardStatsRouteLimiter, async (req, res, next) => {
     if (!await checkAuth(req, res)) return;
     try {
         const saveDir = path.join(process.cwd(), 'save');
