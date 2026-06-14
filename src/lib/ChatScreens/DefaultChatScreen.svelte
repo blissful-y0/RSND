@@ -39,6 +39,13 @@ import { isMobile } from 'src/ts/platform'
     import Chats from './Chats.svelte';
     import Button from '../UI/GUI/Button.svelte';
     import PluginDefinedIcon from '../Others/PluginDefinedIcon.svelte';
+    import {
+        chatComposerPadding,
+        chatComposerWidthClass,
+        isStandardTheme,
+        keyboardInsetFromVisualViewport,
+        shouldFloatChatComposer,
+    } from './chatComposerLayout';
 
     const loadPlaygroundMenu = () => import('../Playground/PlaygroundMenu.svelte').then(m => m.default);
 
@@ -597,21 +604,14 @@ import { isMobile } from 'src/ts/platform'
     let inputEle:HTMLTextAreaElement = $state()
     let inputTranslateHeight = $state("44px")
     let inputTranslateEle:HTMLTextAreaElement = $state()
-    // NodeOnly floating composer: when fixed mode is off (default) and on the
-    // standard theme, the composer floats over the message list as an overlay so
-    // chat scrolls underneath it. floatPad mirrors the overlay height and is fed
-    // back as the scroll container's bottom padding so the newest message clears it.
-    // Standard-theme chat composer floats over the message list so chat scrolls
-    // underneath it (other themes keep the in-flow composer).
-    let floatingMode = $derived(DBState.db.theme === '')
+    // Standard theme can float the composer over the message list, but the
+    // existing "fix chat input to bottom" setting still controls whether it is
+    // actually pinned.
+    let standardTheme = $derived(isStandardTheme(DBState.db.theme))
+    let floatingMode = $derived(shouldFloatChatComposer(DBState.db.theme, DBState.db.fixedChatTextarea))
     // Standard theme: composer width follows the configured chat width (matches message cards).
     // Other themes: no width limit (original full-width behavior).
-    let composerWidthClass = $derived(
-        !floatingMode ? '' :
-        DBState.db.nodeOnlyStandardChatWidth === 'full' ? 'max-w-full' :
-        DBState.db.nodeOnlyStandardChatWidth === 'wide' ? 'max-w-6xl' :
-        'max-w-3xl'
-    )
+    let composerWidthClass = $derived(chatComposerWidthClass(DBState.db.theme, DBState.db.nodeOnlyStandardChatWidth))
     // Effective persona name for the input placeholder (chat-bound persona overrides the selected one).
     let activePersonaName = $derived.by(() => {
         const chat = DBState.db.characters[$selectedCharID]?.chats?.[DBState.db.characters[$selectedCharID]?.chatPage]
@@ -624,12 +624,36 @@ import { isMobile } from 'src/ts/platform'
     const chatAreaBg = 'color-mix(in srgb, var(--risu-theme-bgcolor) 25%, var(--risu-theme-darkbg))'
     let floatEle:HTMLElement = $state()
     let floatPad = $state("0px")
+    let keyboardInset = $state(0)
+    let floatPadWithKeyboard = $derived(chatComposerPadding(floatingMode, floatPad, keyboardInset))
     $effect(() => {
         if(!floatingMode || !floatEle) return
         const el = floatEle
         const ro = new ResizeObserver(() => { floatPad = el.offsetHeight + "px" })
         ro.observe(el)
         return () => ro.disconnect()
+    })
+    $effect(() => {
+        if(!floatingMode || typeof window === 'undefined' || !window.visualViewport){
+            keyboardInset = 0
+            return
+        }
+        const viewport = window.visualViewport
+        let raf = 0
+        const update = () => {
+            if(raf) cancelAnimationFrame(raf)
+            raf = requestAnimationFrame(() => {
+                keyboardInset = keyboardInsetFromVisualViewport(window.innerHeight, viewport)
+            })
+        }
+        update()
+        viewport.addEventListener('resize', update)
+        viewport.addEventListener('scroll', update)
+        return () => {
+            if(raf) cancelAnimationFrame(raf)
+            viewport.removeEventListener('resize', update)
+            viewport.removeEventListener('scroll', update)
+        }
     })
 
     function updateInputSizeAll() {
@@ -690,7 +714,8 @@ import { isMobile } from 'src/ts/platform'
             // Height for the width that will actually be shown.
             const sh = measureHeightAt(multiline ? "100%" : ref)
             // Cap the composer at ~60% of the viewport; beyond that it scrolls.
-            const maxH = Math.round(window.innerHeight * 0.6)
+            const viewportHeight = window.visualViewport?.height ?? window.innerHeight
+            const maxH = Math.round(viewportHeight * 0.6)
             inputHeight = Math.min(sh, maxH) + "px"
             inputEle.style.height = inputHeight
             inputOverflow = sh > maxH
@@ -1207,10 +1232,10 @@ import { isMobile } from 'src/ts/platform'
         {/snippet}
 
         <div class="h-full w-full flex flex-col-reverse overflow-y-auto relative default-chat-screen"
-            class:nodeonly-standard={DBState.db.theme === ''}
-            class:no-chat-width-wide={DBState.db.theme === '' && DBState.db.nodeOnlyStandardChatWidth === 'wide'}
-            class:no-chat-width-full={DBState.db.theme === '' && DBState.db.nodeOnlyStandardChatWidth === 'full'}
-            style:padding-bottom={floatingMode ? floatPad : ''}
+            class:nodeonly-standard={standardTheme}
+            class:no-chat-width-wide={standardTheme && DBState.db.nodeOnlyStandardChatWidth === 'wide'}
+            class:no-chat-width-full={standardTheme && DBState.db.nodeOnlyStandardChatWidth === 'full'}
+            style:padding-bottom={floatPadWithKeyboard}
             onscroll={(e) => {
             if (DBState.db.nodeOnlyScrollButtonType !== 'off') {
                 bumpScrollNav()
@@ -1326,7 +1351,10 @@ import { isMobile } from 'src/ts/platform'
         </div>
 
         {#if floatingMode}
-            <div class="absolute left-0 right-0 bottom-0 z-29 pointer-events-none">
+            <div
+                class="absolute left-0 right-0 bottom-0 z-29 pointer-events-none will-change-transform"
+                style:transform={keyboardInset > 0 ? `translateY(-${keyboardInset}px)` : null}
+            >
                 <div bind:this={floatEle} class="pointer-events-auto flex flex-col-reverse">
                     {@render composerCluster()}
                 </div>
