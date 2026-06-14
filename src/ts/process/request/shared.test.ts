@@ -162,3 +162,39 @@ describe('request shared parameter helpers', () => {
         expect(body).toEqual({})
     })
 })
+
+function streamOf(chunks: Array<{ [key: string]: string }>): ReadableStream<{ [key: string]: string }> {
+    return new ReadableStream({
+        start(controller) {
+            for (const chunk of chunks) controller.enqueue(chunk)
+            controller.close()
+        },
+    })
+}
+
+describe('collectStreamingText', () => {
+    test('returns the last chunk because chunks are cumulative, not deltas', async () => {
+        const { collectStreamingText } = await import('./shared')
+        const stream = streamOf([{ '0': 'He' }, { '0': 'Hello' }, { '0': 'Hello world' }])
+        expect(await collectStreamingText(stream)).toBe('Hello world')
+    })
+
+    test('preserves a reasoning-prefixed final chunk verbatim', async () => {
+        const { collectStreamingText } = await import('./shared')
+        const final = '<Thoughts>\nthinking\n</Thoughts>\n\nanswer'
+        const stream = streamOf([{ '0': '<Thoughts>' }, { '0': final }])
+        expect(await collectStreamingText(stream)).toBe(final)
+    })
+
+    test('reads the first key only (multiGen sidecar indices are ignored)', async () => {
+        const { collectStreamingText } = await import('./shared')
+        const stream = streamOf([{ '0': 'main', '1': 'second' }])
+        expect(await collectStreamingText(stream)).toBe('main')
+    })
+
+    test('returns empty string for an empty stream', async () => {
+        const { collectStreamingText } = await import('./shared')
+        const stream = streamOf([])
+        expect(await collectStreamingText(stream)).toBe('')
+    })
+})
