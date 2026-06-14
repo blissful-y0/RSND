@@ -9,8 +9,8 @@ export function isStandardTheme(theme: string): boolean {
     return theme === ''
 }
 
-export function shouldFloatChatComposer(theme: string, fixedChatTextarea: boolean): boolean {
-    return isStandardTheme(theme) && fixedChatTextarea
+export function shouldFloatChatComposer(_theme: string, fixedChatTextarea: boolean): boolean {
+    return fixedChatTextarea
 }
 
 export function chatComposerWidthClass(theme: string, width: StandardChatWidth): string {
@@ -22,10 +22,12 @@ export function chatComposerWidthClass(theme: string, width: StandardChatWidth):
 
 export function keyboardInsetFromVisualViewport(
     innerHeight: number,
-    viewport: VisualViewportLike | null | undefined
+    viewport: VisualViewportLike | null | undefined,
+    baselineHeight = innerHeight
 ): number {
     if(!viewport) return 0
-    return Math.max(0, Math.round(innerHeight - viewport.height - viewport.offsetTop))
+    const layoutHeight = Math.max(innerHeight, baselineHeight)
+    return Math.max(0, Math.round(layoutHeight - viewport.height - viewport.offsetTop))
 }
 
 export function chatComposerPadding(floating: boolean, composerHeight: string, keyboardInset: number): string {

@@ -7,10 +7,10 @@ import {
 } from './chatComposerLayout'
 
 describe('chat composer layout', () => {
-    test('only floats the standard theme composer when bottom pinning is enabled', () => {
+    test('floats every theme composer when bottom pinning is enabled', () => {
         expect(shouldFloatChatComposer('', true)).toBe(true)
         expect(shouldFloatChatComposer('', false)).toBe(false)
-        expect(shouldFloatChatComposer('custom-theme', true)).toBe(false)
+        expect(shouldFloatChatComposer('custom-theme', true)).toBe(true)
     })
 
     test('keeps standard theme width classes independent from floating mode', () => {
@@ -23,6 +23,7 @@ describe('chat composer layout', () => {
     test('calculates keyboard inset from visual viewport geometry', () => {
         expect(keyboardInsetFromVisualViewport(800, { height: 500, offsetTop: 0 })).toBe(300)
         expect(keyboardInsetFromVisualViewport(800, { height: 500.4, offsetTop: 10.2 })).toBe(289)
+        expect(keyboardInsetFromVisualViewport(500, { height: 500, offsetTop: 0 }, 800)).toBe(300)
         expect(keyboardInsetFromVisualViewport(800, { height: 810, offsetTop: 0 })).toBe(0)
         expect(keyboardInsetFromVisualViewport(800, null)).toBe(0)
     })
