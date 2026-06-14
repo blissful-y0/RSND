@@ -133,10 +133,23 @@ jobs:
 
       # Dual publish to legacy GHCR path for v1.5.x Docker users
       # (ghcr.io/mrbart3885/risuai-nodeonly). PAT belongs to mrbart3885 account.
-      # Required: if the PAT is missing/rotated, this step fails loudly so we don't
-      # silently leave existing Docker users on a stale image. Verify GHCR_LEGACY_PAT
-      # is set before tagging a release.
+      # Forks may not have this secret; keep the current repository image publish
+      # green and only mirror to the legacy package when the token is configured.
+      - name: Check legacy GHCR token
+        id: legacy-ghcr
+        shell: bash
+        env:
+          GHCR_LEGACY_PAT: ${{ secrets.GHCR_LEGACY_PAT }}
+        run: |
+          if [ -n "$GHCR_LEGACY_PAT" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::GHCR_LEGACY_PAT is not configured; skipping legacy GHCR publish"
+          fi
+
       - name: Log in to legacy GHCR
+        if: steps.legacy-ghcr.outputs.enabled == 'true'
         uses: docker/login-action@v4
         with:
           registry: ${{ env.REGISTRY }}
@@ -144,6 +157,7 @@ jobs:
           password: ${{ secrets.GHCR_LEGACY_PAT }}
 
       - name: Create legacy manifest list and push
+        if: steps.legacy-ghcr.outputs.enabled == 'true'
         working-directory: /tmp/digests
         shell: bash
         run: |

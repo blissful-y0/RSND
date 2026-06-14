@@ -1479,6 +1479,24 @@ const loginRouteLimiter = rateLimit({
     validate: { xForwardedForHeader: false }
 });
 
+const proxyRouteLimiter = rateLimit({
+    windowMs: 60 * 1000,
+    max: 240,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: 'Too many proxy requests. Please wait and try again later.' },
+    validate: { xForwardedForHeader: false }
+});
+
+const dashboardStatsRouteLimiter = rateLimit({
+    windowMs: 60 * 1000,
+    max: 60,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: 'Too many stats requests. Please wait and try again later.' },
+    validate: { xForwardedForHeader: false }
+});
+
 function isHex(str) {
     return hexRegex.test(str.toUpperCase().trim()) || str === '__password';
 }
@@ -2868,22 +2886,22 @@ async function hubProxyFunc(req, res) {
     }
 }
 
-app.get('/proxy', reverseProxyFunc_get);
-app.get('/proxy2', reverseProxyFunc_get);
-app.get('/hub-proxy/*', hubProxyFunc);
+app.get('/proxy', proxyRouteLimiter, reverseProxyFunc_get);
+app.get('/proxy2', proxyRouteLimiter, reverseProxyFunc_get);
+app.get('/hub-proxy/*', proxyRouteLimiter, hubProxyFunc);
 
-app.post('/proxy', reverseProxyFunc);
-app.post('/proxy2', reverseProxyFunc);
-app.put('/proxy', reverseProxyFunc);
-app.put('/proxy2', reverseProxyFunc);
-app.patch('/proxy', reverseProxyFunc);
-app.patch('/proxy2', reverseProxyFunc);
-app.delete('/proxy', reverseProxyFunc);
-app.delete('/proxy2', reverseProxyFunc);
-app.post('/hub-proxy/*', hubProxyFunc);
+app.post('/proxy', proxyRouteLimiter, reverseProxyFunc);
+app.post('/proxy2', proxyRouteLimiter, reverseProxyFunc);
+app.put('/proxy', proxyRouteLimiter, reverseProxyFunc);
+app.put('/proxy2', proxyRouteLimiter, reverseProxyFunc);
+app.patch('/proxy', proxyRouteLimiter, reverseProxyFunc);
+app.patch('/proxy2', proxyRouteLimiter, reverseProxyFunc);
+app.delete('/proxy', proxyRouteLimiter, reverseProxyFunc);
+app.delete('/proxy2', proxyRouteLimiter, reverseProxyFunc);
+app.post('/hub-proxy/*', proxyRouteLimiter, hubProxyFunc);
 
 // --- Proxy Stream Job endpoints ---
-app.post('/proxy-stream-jobs', async (req, res) => {
+app.post('/proxy-stream-jobs', proxyRouteLimiter, async (req, res) => {
     if (!await checkProxyAuth(req, res)) {
         return;
     }
@@ -2932,7 +2950,7 @@ app.post('/proxy-stream-jobs', async (req, res) => {
     });
 });
 
-app.delete('/proxy-stream-jobs/:jobId', async (req, res) => {
+app.delete('/proxy-stream-jobs/:jobId', proxyRouteLimiter, async (req, res) => {
     if (!await checkProxyAuth(req, res)) {
         return;
     }
@@ -3301,10 +3319,14 @@ app.get('/api/read', async (req, res, next) => {
                     dbCache[filePath] = stripped;
                     value = Buffer.from(encodeRisuSaveLegacy(stripped));
                 } catch (e) {
-                    // Log the Error itself (not just e.message) so logger.*
-                    // tags it and the Express middleware won't re-log after next().
-                    logger.error('[Read] Failed to strip chats from database.bin', e);
-                    return next(e);
+                    // A bad/corrupt save can make the server-side strip pass fail
+                    // before the client has a chance to run its backup fallback.
+                    // Return the raw DB bytes so boot can continue into the
+                    // client decoder/backup recovery path instead of hard-failing
+                    // /api/read with a JSON error.
+                    logger.error('[Read] Failed to strip chats from database.bin; returning raw database bytes', e);
+                    delete dbCache[filePath];
+                    res.setHeader('x-db-read-fallback', 'raw');
                 }
                 dbEtag = computeBufferEtag(value);
                 if (req.headers['if-none-match'] === dbEtag) {
@@ -4976,7 +4998,7 @@ async function estimateServerBackupSize() {
     return total;
 }
 
-app.get('/api/db/stats', async (req, res, next) => {
+app.get('/api/db/stats', dashboardStatsRouteLimiter, async (req, res, next) => {
     if (!await checkAuth(req, res)) return;
     try {
         const saveDir = path.join(process.cwd(), 'save');
