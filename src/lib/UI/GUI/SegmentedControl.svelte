@@ -7,12 +7,9 @@
 
     interface Props {
         value: string | number;
-        options: readonly SegmentOption[];
+        options: SegmentOption[];
         size?: 'sm' | 'md' | 'lg';
         className?: string;
-        wrap?: boolean;
-        fullWidth?: boolean;
-        onChange?: (value: string | number) => void;
     }
 
     let {
@@ -20,9 +17,6 @@
         options = [],
         size = 'md',
         className = '',
-        wrap = false,
-        fullWidth = false,
-        onChange,
     }: Props = $props();
 
     let containerRef: HTMLDivElement | undefined = $state();
@@ -33,7 +27,7 @@
     let activeIndex = $derived(options.findIndex(opt => opt.value === value));
 
     function updateIndicator() {
-        if (wrap || !containerRef || activeIndex < 0) {
+        if (!containerRef || activeIndex < 0) {
             indicatorStyle = '';
             return;
         }
@@ -65,23 +59,19 @@
 
     function handleSelect(opt: SegmentOption) {
         value = opt.value;
-        onChange?.(opt.value);
     }
 </script>
 
+<div
+    class="segmented-control-container {className}"
+    bind:this={containerRef}
+>
+    <!-- Sliding indicator -->
     <div
-        class="segmented-control-container {className}"
-        class:segmented-control-wrap={wrap}
-        class:segmented-control-full-width={fullWidth}
-        bind:this={containerRef}
-    >
-    {#if !wrap}
-        <div
-            class="segmented-indicator"
-            class:no-transition={!mounted}
-            style={indicatorStyle}
-        ></div>
-    {/if}
+        class="segmented-indicator"
+        class:no-transition={!mounted}
+        style={indicatorStyle}
+    ></div>
 
     {#each options as opt (opt.value)}
         <button
@@ -89,7 +79,6 @@
             type="button"
             class="segmented-btn"
             class:segmented-btn-active={opt.value === value}
-            class:segmented-btn-wrap={wrap}
             class:text-xs={size === 'sm'}
             class:text-sm={size === 'md'}
             class:text-base={size === 'lg'}
@@ -119,16 +108,6 @@
         gap: 2px;
         user-select: none;
         margin-bottom: 1rem;
-    }
-
-    .segmented-control-full-width {
-        display: flex;
-        width: 100%;
-    }
-
-    .segmented-control-wrap {
-        flex-wrap: wrap;
-        align-items: stretch;
     }
 
     .segmented-indicator.no-transition {
@@ -163,29 +142,12 @@
         line-height: 1.4;
     }
 
-    .segmented-control-full-width .segmented-btn {
-        flex: 1 1 0;
-        justify-content: center;
-    }
-
-    .segmented-btn-wrap {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        flex: 1 1 5.75rem;
-        min-width: min(100%, 5.75rem);
-    }
-
     .segmented-btn:hover:not(.segmented-btn-active) {
         color: var(--risu-theme-textcolor);
     }
 
     .segmented-btn-active {
         color: #fff;
-    }
-
-    .segmented-btn-wrap.segmented-btn-active {
-        background-color: var(--risu-theme-borderc);
     }
 
     .segmented-btn:focus-visible {

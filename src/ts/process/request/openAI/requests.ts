@@ -2,7 +2,6 @@ import { language } from "src/lang"
 import { notifyError } from "src/ts/alert";
 import { getDatabase } from "src/ts/storage/database.svelte"
 import { LLMFlags, LLMFormat } from "src/ts/model/modellist"
-import { getDeepSeekV4ThinkingParams, isDeepSeekV4ModelId } from "src/ts/model/deepseek"
 import { strongBan, tokenizeNum } from "src/ts/tokenizer"
 import { getFreeOpenRouterModels } from "src/ts/model/openrouter"
 import { addFetchLog, fetchNative, globalFetch, textifyReadableStream } from "src/ts/globalApi.svelte"
@@ -24,50 +23,12 @@ function getLocalNetworkRequestOptions(url: string, force: boolean = false): Loc
     }
 }
 
-function applyVercelGatewayOptions(body: { [key:string]: any }, modelInfo: RequestDataArgumentExtended['modelInfo'], aiModel: string) {
-    if (aiModel !== 'vercel' && modelInfo.provider !== 18) return
-
-    const db = getDatabase()
-    const modelId = String(body.model ?? '')
-    const isOpenAIModel = modelId.startsWith('openai/')
-
-    if (isOpenAIModel && db.vercelServiceTier && db.vercelServiceTier !== 'auto') {
-        body.service_tier = db.vercelServiceTier
-    }
-
-    if (isOpenAIModel && db.vercelPromptCacheRetention === '24h') {
-        body.prompt_cache_retention = '24h'
-    }
-
-    if (db.vercelGatewayCaching) {
-        body.providerOptions ??= {}
-        body.providerOptions.gateway ??= {}
-        body.providerOptions.gateway.caching = 'auto'
-    }
-}
-
-function shouldOmitNoneReasoningEffort(arg: RequestDataArgumentExtended): boolean {
-    const modelId = String(arg.modelInfo?.id ?? '')
-    return arg.omitNoneReasoningEffort === true ||
-        arg.modelInfo?.provider === 15 ||
-        modelId.startsWith('copilot-') ||
-        modelId.startsWith('dynamic_copilot_')
-}
-
-function getApplyParameterOptions(arg: RequestDataArgumentExtended, extra: Record<string, any> = {}) {
-    return {
-        modelId: arg.modelInfo.id,
-        ...(shouldOmitNoneReasoningEffort(arg) ? { omitNoneReasoningEffort: true } : {}),
-        ...extra,
-    }
-}
-
 import { extractJSON, getOpenAIJSONSchema } from "../../templates/jsonSchema"
 import { applyChatTemplate } from "../../templates/chatTemplate"
 import { supportsInlayImage } from "../../files/inlays"
 import { callTool, decodeToolCall, encodeToolCall } from "../../mcp/mcp"
 import type { RequestDataArgumentExtended, requestDataResponse, StreamResponseChunk } from '../request'
-import { applyAdditionalParameters, applyParameters, getAdditionalParameters, getReasoningEffortParameterValue, setObjectValue } from '../shared'
+import { applyAdditionalParameters, applyParameters, getAdditionalParameters } from '../shared'
 
 import type { Contents, OpenAIChatExtra, OpenAIChatFull, ResponseInputItem, ResponseItem, ResponseOutputItem, ToolCall } from './types'
 
@@ -347,11 +308,7 @@ export async function requestOpenAI(arg:RequestDataArgumentExtended):Promise<req
         }
     
         const mistralUrl = arg.customURL ?? "https://api.mistral.ai/v1/chat/completions"
-        const res = await globalFetch(mistralUrl, {
-            ...targs,
-            proxyPolicy: arg.proxyPolicy,
-            ...getLocalNetworkRequestOptions(mistralUrl),
-        })
+        const res = await globalFetch(mistralUrl, { ...targs, ...getLocalNetworkRequestOptions(mistralUrl) })
 
         const dat = res.data as any
         if(res.ok){
@@ -455,8 +412,6 @@ export async function requestOpenAI(arg:RequestDataArgumentExtended):Promise<req
         }
     }
 
-    applyVercelGatewayOptions(body, arg.modelInfo, aiModel)
-
     if(aiModel === 'openrouter'){
         if(db.openrouterFallback){
             body.route = "fallback"
@@ -491,23 +446,10 @@ export async function requestOpenAI(arg:RequestDataArgumentExtended):Promise<req
         arg.modelInfo.parameters,
         {},
         arg.mode,
-        getApplyParameterOptions(arg)
-    )
-
-    if(arg.modelInfo?.keyIdentifier === 'deepseek' && isDeepSeekV4ModelId(body.model)){
-        const thinkingParams = getDeepSeekV4ThinkingParams(
-            getReasoningEffortParameterValue(arg.mode, { modelId: arg.modelInfo.id })
-        )
-        if(thinkingParams){
-            body.thinking = thinkingParams.thinking
-            if(thinkingParams.reasoning_effort){
-                body.reasoning_effort = thinkingParams.reasoning_effort
-            }
-            else{
-                delete body.reasoning_effort
-            }
+        {
+            modelId: arg.modelInfo.id
         }
-    }
+    )
 
     if(arg.tools && arg.tools.length > 0){
         body.tools = arg.tools.map(tool => {
@@ -596,9 +538,6 @@ export async function requestOpenAI(arg:RequestDataArgumentExtended):Promise<req
     if(risuIdentify){
         headers["X-Proxy-Risu"] = 'RisuAI'
     }
-    if(arg.extraHeaders){
-        headers = { ...headers, ...arg.extraHeaders }
-    }
     if(arg.multiGen){
         // Check if tools are enabled - multiGen with tools is not supported
         if(arg.tools && arg.tools.length > 0){
@@ -633,7 +572,6 @@ export async function requestOpenAI(arg:RequestDataArgumentExtended):Promise<req
             signal: arg.abortSignal,
             chatId: arg.chatId,
             interceptor: 'openai_streaming',
-            proxyPolicy: arg.proxyPolicy,
             ...getLocalNetworkRequestOptions(replacerURL, arg.forceLocalNetwork),
         })
 
@@ -697,8 +635,6 @@ async function requestHTTPOpenAI(replacerURL:string,body:any, headers:Record<str
         abortSignal: arg.abortSignal,
         chatId: arg.chatId,
         interceptor: 'openai_basic',
-        plainFetchDeforce: !!arg.extraHeaders,
-        proxyPolicy: arg.proxyPolicy,
         ...getLocalNetworkRequestOptions(replacerURL, arg.forceLocalNetwork),
     })
 
@@ -970,7 +906,6 @@ export async function requestOpenAILegacyInstruct(arg:RequestDataArgumentExtende
         },
         chatId: arg.chatId,
         abortSignal: arg.abortSignal,
-        proxyPolicy: arg.proxyPolicy,
         ...getLocalNetworkRequestOptions(completionsUrl),
     });
 
@@ -1064,12 +999,9 @@ export async function requestOpenAIResponseAPI(arg:RequestDataArgumentExtended):
         max_output_tokens: maxTokens,
         tools: [],
         store: false
-    }, arg.modelInfo.parameters ?? ['temperature', 'top_p'], {
-        reasoning_effort: 'reasoning.effort',
-    }, arg.mode, getApplyParameterOptions(arg))
-    if(body.reasoning?.effort && body.reasoning.effort !== 'none'){
-        body.reasoning.summary = 'detailed'
-    }
+    }, ['temperature', 'top_p'], {}, arg.mode, {
+        modelId: arg.modelInfo.id
+    })
 
     let requestURL = arg.customURL ?? "https://api.openai.com/v1/responses"
     if(arg.modelInfo?.endpoint){
@@ -1127,16 +1059,13 @@ export async function requestOpenAIResponseAPI(arg:RequestDataArgumentExtended):
         }
     }
 
-    let headers = {
+    const headers = {
         "Authorization": "Bearer " + (arg.key ?? db.openAIKey),
         "Content-Type": "application/json"
     }
 
     if(risuIdentify){
         headers["X-Proxy-Risu"] = 'RisuAI'
-    }
-    if(arg.extraHeaders){
-        headers = { ...headers, ...arg.extraHeaders }
     }
 
     if(arg.previewBody){
@@ -1154,61 +1083,12 @@ export async function requestOpenAIResponseAPI(arg:RequestDataArgumentExtended):
         body.tools.push('web_search_preview')
     }
 
-    if(arg.useStreaming){
-        body.stream = true
-
-        const streamResponse = await fetchNative(requestURL, {
-            body: JSON.stringify(body),
-            method: "POST",
-            headers: headers,
-            signal: arg.abortSignal,
-            chatId: arg.chatId,
-            interceptor: 'openai_response_api_streaming',
-            proxyPolicy: arg.proxyPolicy,
-            ...getLocalNetworkRequestOptions(requestURL),
-        })
-
-        if(streamResponse.status !== 200){
-            return {
-                type: "fail",
-                result: await textifyReadableStream(streamResponse.body)
-            }
-        }
-
-        if(!streamResponse.headers.get('Content-Type')?.includes('text/event-stream')){
-            return {
-                type: "fail",
-                result: await textifyReadableStream(streamResponse.body)
-            }
-        }
-
-        addFetchLog({
-            body: body,
-            response: "Streaming",
-            success: true,
-            url: requestURL,
-            status: streamResponse.status,
-        })
-
-        const transtream = getResponseApiTranStream()
-        streamResponse.body.pipeTo(transtream.writable)
-
-        return {
-            type: 'streaming',
-            result: transtream.readable
-        }
-    }
-
-    body.stream = false
-
     const response = await globalFetch(requestURL, {
         body: body,
         headers: headers,
         chatId: arg.chatId,
         abortSignal: arg.abortSignal,
         interceptor: 'openai_response_api',
-        plainFetchDeforce: !!arg.extraHeaders,
-        proxyPolicy: arg.proxyPolicy,
         ...getLocalNetworkRequestOptions(requestURL),
     });
 
@@ -1220,21 +1100,12 @@ export async function requestOpenAIResponseAPI(arg:RequestDataArgumentExtended):
     }
 
     let result: string = (response.data.output?.find((m:ResponseOutputItem) => m.type === 'message') as ResponseOutputItem)?.content?.find(m => m.type === 'output_text')?.text
-    const reasoningSummary = response.data.output
-        ?.filter((m: any) => m.type === 'reasoning')
-        ?.flatMap((m: any) => m.summary ?? [])
-        ?.filter((m: any) => m.type === 'summary_text' && m.text)
-        ?.map((m: any) => m.text)
-        ?.join('\n')
 
     if(!result){
         return {
             type: 'fail',
             result: JSON.stringify(response.data)
         }
-    }
-    if(reasoningSummary){
-        result = `<Thoughts>\n${reasoningSummary}\n</Thoughts>\n${result}`
     }
     return {
         type: 'success',
@@ -1398,106 +1269,6 @@ function getTranStream(arg:RequestDataArgumentExtended):TransformStream<Uint8Arr
     })
 }
 
-function getResponseApiTranStream(): TransformStream<Uint8Array, StreamResponseChunk> {
-    const decoder = new TextDecoder()
-    let buffer = ''
-    let outputText = ''
-    let reasoningText = ''
-
-    const appendStreamingFragment = (current:string, incoming?:string) => {
-        if(!incoming){
-            return current
-        }
-        if(incoming.length > current.length && incoming.startsWith(current)){
-            return incoming
-        }
-        return current + incoming
-    }
-
-    const currentText = () => {
-        if(!reasoningText){
-            return outputText
-        }
-        return `<Thoughts>\n${reasoningText}\n</Thoughts>\n${outputText}`
-    }
-
-    const applyEvent = (event: any) => {
-        const type = event?.type ?? ''
-
-        if(type === 'response.output_text.delta'){
-            outputText = appendStreamingFragment(outputText, event.delta)
-            return
-        }
-        if(type === 'response.reasoning_text.delta' || type === 'response.output_item.reasoning.delta' || type === 'response.reasoning_summary_text.delta'){
-            reasoningText = appendStreamingFragment(reasoningText, event.delta)
-            return
-        }
-        if(type === 'response.completed'){
-            const responseText = event.response?.output_text
-            if(responseText){
-                outputText = responseText
-                return
-            }
-
-            const message = event.response?.output?.find((item: any) => item.type === 'message')
-            const text = message?.content?.find((content: any) => content.type === 'output_text')?.text
-            if(text){
-                outputText = text
-            }
-        }
-    }
-
-    return new TransformStream<Uint8Array, StreamResponseChunk>({
-        transform(chunk, control) {
-            buffer += decoder.decode(chunk, { stream: true })
-            const events = buffer.split('\n\n')
-            buffer = events.pop() ?? ''
-
-            for(const rawEvent of events){
-                const lines = rawEvent.split('\n')
-                const dataLines = lines
-                    .filter(line => line.startsWith('data: '))
-                    .map(line => line.slice(6))
-
-                if(dataLines.length === 0){
-                    continue
-                }
-
-                const data = dataLines.join('\n')
-                if(data === '[DONE]'){
-                    continue
-                }
-
-                try {
-                    applyEvent(JSON.parse(data))
-                    const text = currentText()
-                    if(text){
-                        control.enqueue({ "0": text })
-                    }
-                } catch {}
-            }
-        },
-        flush(control) {
-            if(buffer.trim()){
-                const dataLines = buffer.split('\n')
-                    .filter(line => line.startsWith('data: '))
-                    .map(line => line.slice(6))
-                const data = dataLines.join('\n')
-                if(data && data !== '[DONE]'){
-                    try {
-                        applyEvent(JSON.parse(data))
-                    } catch {}
-                }
-            }
-
-            const text = currentText()
-            if(text){
-                control.enqueue({ "0": text })
-            }
-        }
-    })
-}
-
 function wrapToolStream(
     stream: ReadableStream<StreamResponseChunk>,
     body:any,
@@ -1608,7 +1379,6 @@ function wrapToolStream(
                                 signal: arg.abortSignal,
                                 chatId: arg.chatId,
                                 interceptor: 'openai_tool',
-                                proxyPolicy: arg.proxyPolicy,
                                 ...getLocalNetworkRequestOptions(replacerURL),
                             })
                             

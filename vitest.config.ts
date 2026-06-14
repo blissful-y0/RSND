@@ -1,21 +1,21 @@
-import { configDefaults, defineConfig, mergeConfig } from 'vitest/config'
-import viteConfig from './vite.config'
+import { svelte } from "@sveltejs/vite-plugin-svelte"
+import { defineConfig } from 'vitest/config'
 
-const baseConfig =
-  typeof viteConfig === 'function'
-    ? viteConfig({ command: 'serve', mode: 'test' })
-    : viteConfig
-
-export default mergeConfig(
-  baseConfig,
-  defineConfig({
-    resolve: {
-      conditions: ['browser'],
+export default defineConfig({
+  plugins: [
+    svelte(),
+  ],
+  resolve: {
+    alias: {
+      src: '/src',
     },
-    test: {
-      environment: 'happy-dom',
-      exclude: [...configDefaults.exclude, 'test/compat/**/*.test.ts', '.worktrees/**'],
-      setupFiles: ['src/ts/polyfill.ts', 'vitest.setup.ts'],
-    },
-  })
-)
+    conditions: ['browser'],
+  },
+  test: {
+    environment: 'happy-dom',
+    setupFiles: ['vitest.setup.ts'],
+    // compat suite has its own node-environment config (vitest.config.compat.ts);
+    // exclude here so `pnpm test` doesn't pick them up under the wrong environment.
+    exclude: ['node_modules/**', 'test/compat/**'],
+  },
+})

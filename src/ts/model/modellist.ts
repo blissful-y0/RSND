@@ -6,18 +6,12 @@ import {
     LLMTokenizer,
     ProviderNames,
     OpenAIParameters,
-    GPT5Parameters,
     ClaudeParameters,
     type LLMModel
 } from './types'
-import type { LLMParameter } from '../process/request/shared'
 import { OpenAIModels } from './providers/openai'
 import { AnthropicModels } from './providers/anthropic'
 import { GoogleModels } from './providers/google'
-import { CopilotModels } from './providers/copilot'
-import { NanoGPTModels } from './providers/nanogpt'
-import { toVercelDynamicModel } from './vercel'
-import { toLLMGatewayDynamicModel } from './llmgateway'
 import { fetchNative } from "../globalApi.svelte"
 import { DBState } from "../stores.svelte"
 import { customProviderStore, pluginV2 } from "../plugins/plugins.svelte"
@@ -25,7 +19,7 @@ import { get } from "svelte/store"
 import { customV3ProviderMetaStore } from "../plugins/apiV3/v3.svelte"
 
 // Re-export types for backwards compatibility
-export { LLMFlags, LLMProvider, LLMFormat, LLMTokenizer, ProviderNames, OpenAIParameters, GPT5Parameters, ClaudeParameters }
+export { LLMFlags, LLMProvider, LLMFormat, LLMTokenizer, ProviderNames, OpenAIParameters, ClaudeParameters }
 export type { LLMModel }
 
 function makeDeepInfraModels(id:string[]):LLMModel[]{
@@ -49,8 +43,6 @@ function makeDeepInfraModels(id:string[]):LLMModel[]{
 export const LLMModels: LLMModel[] = [
     ...OpenAIModels,
     ...AnthropicModels,
-    ...CopilotModels,
-    ...NanoGPTModels,
     // AWS Bedrock Claude models
     {
         name: "Claude 4.6 Opus v1",
@@ -423,64 +415,6 @@ export const LLMModels: LLMModel[] = [
         tokenizer: LLMTokenizer.Unknown,
         recommended: true
     },
-    {
-        id: 'vercel',
-        name: 'Vercel AI Gateway (Custom)',
-        fullName: 'Vercel AI Gateway (Custom)',
-        provider: LLMProvider.Vercel,
-        format: LLMFormat.OpenAICompatible,
-        flags: [LLMFlags.hasFullSystemPrompt, LLMFlags.hasStreaming],
-        parameters: GPT5Parameters,
-        tokenizer: LLMTokenizer.tiktokenO200Base,
-        recommended: true,
-    },
-    {
-        id: 'llmgateway',
-        name: 'LLM Gateway (DevPass)',
-        fullName: 'LLM Gateway (DevPass)',
-        provider: LLMProvider.LLMGateway,
-        format: LLMFormat.OpenAICompatible,
-        flags: [LLMFlags.hasFullSystemPrompt, LLMFlags.hasImageInput, LLMFlags.hasStreaming, LLMFlags.OAICompletionTokens],
-        parameters: GPT5Parameters,
-        tokenizer: LLMTokenizer.tiktokenO200Base,
-        recommended: true,
-    },
-    {
-        id: 'llmgateway-claude-opus-4.7',
-        name: 'Claude Opus 4.7',
-        fullName: 'LLM Gateway Claude Opus 4.7',
-        internalID: 'claude-opus-4-7',
-        provider: LLMProvider.LLMGateway,
-        format: LLMFormat.Anthropic,
-        flags: [LLMFlags.hasImageInput, LLMFlags.hasFirstSystemPrompt, LLMFlags.hasStreaming],
-        parameters: ClaudeParameters,
-        tokenizer: LLMTokenizer.Claude,
-        recommended: true,
-    },
-    {
-        id: 'llmgateway-gpt-5.5',
-        name: 'GPT-5.5',
-        fullName: 'LLM Gateway GPT-5.5',
-        internalID: 'gpt-5.5',
-        provider: LLMProvider.LLMGateway,
-        format: LLMFormat.OpenAICompatible,
-        flags: [LLMFlags.hasFullSystemPrompt, LLMFlags.hasImageInput, LLMFlags.hasStreaming, LLMFlags.OAICompletionTokens],
-        parameters: GPT5Parameters,
-        tokenizer: LLMTokenizer.tiktokenO200Base,
-        recommended: true,
-    },
-    {
-        id: 'llmgateway-deepseek-v4-pro',
-        name: 'DeepSeek V4 Pro',
-        fullName: 'LLM Gateway DeepSeek V4 Pro',
-        internalID: 'deepseek-v4-pro',
-        provider: LLMProvider.LLMGateway,
-        format: LLMFormat.OpenAICompatible,
-        flags: [LLMFlags.hasFullSystemPrompt, LLMFlags.hasStreaming],
-        parameters: ['temperature', 'top_p', 'frequency_penalty', 'presence_penalty', 'reasoning_effort'],
-        tokenizer: LLMTokenizer.DeepSeek,
-        recommended: true,
-    },
     // WebLLM
     {
         id: 'hf:::Xenova/opt-350m',
@@ -510,30 +444,6 @@ export const LLMModels: LLMModel[] = [
         tokenizer: LLMTokenizer.Local
     },
     // DeepSeek
-    {
-        id: 'deepseek-v4-flash',
-        name: 'DeepSeek V4 Flash',
-        provider: LLMProvider.DeepSeek,
-        format: LLMFormat.OpenAICompatible,
-        flags: [LLMFlags.hasFirstSystemPrompt, LLMFlags.requiresAlternateRole, LLMFlags.mustStartWithUserInput, LLMFlags.hasPrefill, LLMFlags.deepSeekPrefix, LLMFlags.deepSeekThinkingInput, LLMFlags.hasStreaming],
-        parameters: ['frequency_penalty', 'presence_penalty','temperature', 'top_p', 'reasoning_effort'],
-        tokenizer: LLMTokenizer.DeepSeek,
-        endpoint: 'https://api.deepseek.com/chat/completions',
-        keyIdentifier: 'deepseek',
-        recommended: true
-    },
-    {
-        id: 'deepseek-v4-pro',
-        name: 'DeepSeek V4 Pro',
-        provider: LLMProvider.DeepSeek,
-        format: LLMFormat.OpenAICompatible,
-        flags: [LLMFlags.hasFirstSystemPrompt, LLMFlags.requiresAlternateRole, LLMFlags.mustStartWithUserInput, LLMFlags.hasPrefill, LLMFlags.deepSeekPrefix, LLMFlags.deepSeekThinkingInput, LLMFlags.hasStreaming],
-        parameters: ['frequency_penalty', 'presence_penalty','temperature', 'top_p', 'reasoning_effort'],
-        tokenizer: LLMTokenizer.DeepSeek,
-        endpoint: 'https://api.deepseek.com/chat/completions',
-        keyIdentifier: 'deepseek',
-        recommended: true
-    },
     {
         id: 'deepseek-chat',
         name: 'Deepseek Chat',
@@ -591,8 +501,8 @@ export const LLMModels: LLMModel[] = [
     // NanoGPT — single provider entry; model list fetched on demand via getNanoGPTModels()
     {
         id: 'nanogpt',
-        name: 'NanoGPT (Custom)',
-        fullName: 'NanoGPT (Custom)',
+        name: 'NanoGPT',
+        fullName: 'NanoGPT',
         provider: LLMProvider.NanoGPT,
         format: LLMFormat.NanoGPT,
         flags: [LLMFlags.hasFullSystemPrompt, LLMFlags.hasImageInput, LLMFlags.hasStreaming, LLMFlags.OAICompletionTokens],
@@ -636,141 +546,6 @@ for(let model of LLMModels){
     model.shortName ??= model.name
     model.internalID ??= model.id
     model.fullName ??= model.provider !== LLMProvider.AsIs ? `${ProviderNames.get(model.provider) ?? ''} ${model.name}`.trim() : model.name
-}
-
-export async function registerCopilotModelsDynamic() {
-    try {
-        const tokens = DBState.db.copilot?.githubTokens ?? []
-        if (tokens.length === 0) return
-
-        const { fetchCopilotModels } = await import('../process/request/copilot')
-        const { models } = await fetchCopilotModels(tokens[0])
-
-        for (const model of models) {
-            const dynamicId = `dynamic_copilot_${model.id}`
-            const exists = LLMModels.find((entry) => entry.id === dynamicId || entry.internalID === model.id)
-            if (exists) continue
-
-            const isAnthropic = model.vendor === 'Anthropic'
-            const isResponsesOnly = model.supportedEndpoints.length === 1 && model.supportedEndpoints[0] === '/responses'
-            const usesCompletionTokens = !isAnthropic && model.id.startsWith('gpt-5')
-
-            const format = isAnthropic
-                ? LLMFormat.Anthropic
-                : isResponsesOnly
-                    ? LLMFormat.OpenAIResponseAPI
-                    : LLMFormat.OpenAICompatible
-
-            const flags: LLMFlags[] = [LLMFlags.hasStreaming]
-            if (model.supportsVision) flags.push(LLMFlags.hasImageInput)
-            if (isAnthropic) {
-                flags.push(LLMFlags.hasFirstSystemPrompt)
-                if (model.supportsThinking) {
-                    // TODO: gate on model id — Claude 4.7+ rejects legacy thinking budgets.
-                    // If Copilot's /models ever serves opus/sonnet 4.7+ here, this branch
-                    // will emit a 400. Mirror the static entry's adaptive-only shape.
-                    flags.push(LLMFlags.claudeThinking, LLMFlags.claudeAdaptiveThinking)
-                }
-            } else {
-                flags.push(LLMFlags.hasFullSystemPrompt)
-                if (usesCompletionTokens) {
-                    flags.push(LLMFlags.OAICompletionTokens)
-                }
-            }
-
-            const parameters: LLMParameter[] = isAnthropic
-                ? [...ClaudeParameters, ...(model.supportsThinking ? ['thinking_tokens' as LLMParameter] : [])]
-                : ['temperature', 'top_p', 'frequency_penalty', 'presence_penalty', 'reasoning_effort', 'verbosity']
-
-            LLMModels.push({
-                id: dynamicId,
-                name: model.name,
-                shortName: `GH Copilot ${model.name}`,
-                fullName: `GitHub Copilot ${model.name}`,
-                internalID: model.id,
-                provider: LLMProvider.Copilot,
-                format,
-                flags,
-                parameters,
-                tokenizer: isAnthropic ? LLMTokenizer.Claude : LLMTokenizer.tiktokenO200Base,
-            })
-        }
-    } catch (error) {
-        console.error('Error fetching Copilot models', error)
-    }
-}
-
-export async function registerNanoGPTModelsDynamic() {
-    try {
-        const keys = DBState.db.nanogpt?.apiKeys ?? []
-        if (keys.length === 0) return
-
-        const { fetchNanoGPTModels } = await import('../process/request/nanogpt')
-        const { models } = await fetchNanoGPTModels(keys[0])
-
-        for (const model of models) {
-            const dynamicId = `dynamic_nanogpt_${model.id}`
-            const exists = LLMModels.find((entry) => entry.id === dynamicId || entry.internalID === model.id)
-            if (exists) continue
-
-            LLMModels.push({
-                id: dynamicId,
-                name: model.name,
-                shortName: `NanoGPT ${model.name}`,
-                fullName: `NanoGPT ${model.name}`,
-                internalID: model.id,
-                provider: LLMProvider.NanoGPT,
-                format: LLMFormat.OpenAICompatible,
-                flags: [LLMFlags.hasFullSystemPrompt, LLMFlags.hasStreaming],
-                parameters: ['temperature', 'top_p', 'frequency_penalty', 'presence_penalty'],
-                tokenizer: LLMTokenizer.tiktokenO200Base,
-            })
-        }
-    } catch (error) {
-        console.error('Error fetching NanoGPT models', error)
-    }
-}
-
-export async function registerVercelModelsDynamic() {
-    try {
-        const { fetchVercelModels } = await import('../process/request/vercel')
-        const { models, error } = await fetchVercelModels()
-        if (error) {
-            throw new Error(error)
-        }
-
-        for (const model of models) {
-            const dynamicId = `dynamic_vercel_${model.id}`
-            const exists = LLMModels.find((entry) => entry.id === dynamicId || (entry.provider === LLMProvider.Vercel && entry.internalID === model.id))
-            if (exists) continue
-
-            LLMModels.push(toVercelDynamicModel(model))
-        }
-    } catch (error) {
-        console.error('Error fetching Vercel models', error)
-        throw error
-    }
-}
-
-export async function registerLLMGatewayModelsDynamic() {
-    try {
-        const { fetchLLMGatewayModels } = await import('../process/request/llmgateway')
-        const { models, error } = await fetchLLMGatewayModels()
-        if (error) {
-            throw new Error(error)
-        }
-
-        for (const model of models) {
-            const dynamicId = `dynamic_llmgateway_${model.id}`
-            const exists = LLMModels.find((entry) => entry.id === dynamicId || (entry.provider === LLMProvider.LLMGateway && entry.internalID === model.id))
-            if (exists) continue
-
-            LLMModels.push(toLLMGatewayDynamicModel(model))
-        }
-    } catch (error) {
-        console.error('Error fetching LLM Gateway models', error)
-        throw error
-    }
 }
 
 for(let i=0; i<LLMModels.length; i++){
@@ -1016,7 +791,7 @@ export function getModelList<T extends boolean>(arg:{
     if(arg.groupedByProvider){
         let group: GetModelListGroup[] = []
         for(let model of models){
-            if(model.provider === LLMProvider.AsIs){
+            if(model.provider === LLMProvider.AsIs || model.provider === LLMProvider.NanoGPT){
                 group.push({
                     providerName: '@as-is',
                     models: [model]

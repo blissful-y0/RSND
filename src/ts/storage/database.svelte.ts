@@ -1,6 +1,7 @@
 import { get } from 'svelte/store';
 import { checkNullish, decryptBuffer, encryptBuffer, selectSingleFile } from '../util';
 import { changeLanguage, language } from '../../lang';
+import { DEFAULT_CHAT_LOAD_ADDITIONAL_PAGES, DEFAULT_CHAT_LOAD_INITIAL_PAGES, normalizeChatLoadPages } from '../chatLoadPages';
 import type { RisuPlugin } from '../plugins/plugins.svelte';
 import type {triggerscript as triggerscriptMain} from '../process/triggers';
 import { downloadFile, saveAsset as saveImageGlobal } from '../globalApi.svelte';
@@ -20,7 +21,7 @@ import type { ApiKeyPoolEntry, ModelBindingFields, ModelBindingSet, ModelPreset,
 import { emptyModelBinding } from '../preset/types';
 
 //APP_VERSION_POINT is to locate the app version in the database file for version bumping
-export let appVer = "2026.2.292" //<APP_VERSION_POINT>
+export let appVer = "2026.2.291" //<APP_VERSION_POINT>
 export let webAppSubVer = ''
 export const nodeOnlyVer: string = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '0.0.0'
 
@@ -386,7 +387,7 @@ export function setDatabase(data:Database){
     data.globalscript ??= []
     data.sendWithEnter ??= true
     data.sendKeyPC ??= 'enter'
-    data.sendKeyMobile ??= 'button'
+    data.sendKeyMobile ??= 'ctrl-enter'
     data.autoSuggestPrompt ??= defaultAutoSuggestPrompt
     data.autoSuggestPrefix ??= ""
     data.OAIPrediction ??= ''
@@ -396,6 +397,9 @@ export function setDatabase(data:Database){
     data.inlayImagePriority ??= true
     data.enableBlockPartialEdit ??= false
     data.enableDragPartialEdit ??= false
+    // Concrete default so the settings toggle (reads !!value) and the runtime
+    // gate (statusEnabled) agree. Default on — see request-status-toast-infra.md.
+    data.showRequestStatus ??= true
     if(!data.formatingOrder.includes('personaPrompt')){
         data.formatingOrder.splice(data.formatingOrder.indexOf('main'),0,'personaPrompt')
     }
@@ -490,15 +494,6 @@ export function setDatabase(data:Database){
     data.antiClaudeOverload ??= false
     data.ollamaURL ??= ''
     data.ollamaModel ??= ''
-    data.vercelKey ??= ''
-    data.vercelRequestModel ??= ''
-    data.vercelRequestModelName ??= ''
-    data.vercelServiceTier ??= 'flex'
-    data.vercelPromptCacheRetention ??= '24h'
-    data.vercelGatewayCaching ??= true
-    data.llmGatewayKey ??= ''
-    data.llmGatewayRequestModel ??= ''
-    data.llmGatewayRequestModelName ??= ''
     data.autoContinueChat ??= false
     data.autoContinueMinTokens ??= 0
     data.repetition_penalty ??= 1
@@ -634,7 +629,6 @@ export function setDatabase(data:Database){
     data.useExperimentalGoogleTranslator ??= false
     data.thinkingType ??= 'budget'
     data.adaptiveThinkingEffort ??= 'high'
-    data.adaptiveThinkingDisplay ??= 'summarized'
     if(data.antiClaudeOverload){ //migration
         data.antiClaudeOverload = false
         data.antiServerOverloads = true
@@ -724,19 +718,18 @@ export function setDatabase(data:Database){
     data.dynamicModelRegistry ??= true
     data.saveSignatures ??= false
     data.nodeOnlyScrollButtonType ??= 'four'
+    data.nodeOnlyHideRecentChats ??= false
     data.keepSessionAlive ??= 'off'
-    data.copilot ??= { githubTokens: [], keyRotate: 'sequential', simulationTarget: 'opencode', machineId: '', deviceId: '', vsCodeVersion: '', chatVersion: '' }
-    data.copilot.simulationTarget ??= 'opencode'
-    data.copilot.deviceId ??= ''
-    data.copilot.vsCodeVersion ??= ''
-    data.copilot.chatVersion ??= ''
-    data.nanogpt ??= { apiKeys: [], keyRotate: 'sequential' }
     data.localNetworkMode ??= false
     if (typeof data.localNetworkMode !== 'boolean') data.localNetworkMode = false
     data.localNetworkTimeoutSec ??= 600
     if (typeof data.localNetworkTimeoutSec !== 'number' || Number.isNaN(data.localNetworkTimeoutSec)) data.localNetworkTimeoutSec = 600
     data.pluginCustomStorage ??= {}
     data.longPressToPopupEditor ??= false
+    data.showInputActionBar ??= true
+    data.moveInsteadOfCopyOnCMPConvert ??= false
+    data.chatLoadInitialPages = normalizeChatLoadPages(data.chatLoadInitialPages, DEFAULT_CHAT_LOAD_INITIAL_PAGES)
+    data.chatLoadAdditionalPages = normalizeChatLoadPages(data.chatLoadAdditionalPages, DEFAULT_CHAT_LOAD_ADDITIONAL_PAGES)
     data.fixedChatTextarea ??= true
     applyModelPresetDefaults(data)
     changeLanguage(data.language)
@@ -953,6 +946,16 @@ export interface DynamicOutput {
     dynamicRequest: boolean
 }
 
+export interface RisuPersona {
+    personaPrompt:string
+    name:string
+    icon:string
+    largePortrait?:boolean
+    id?:string
+    note?:string
+    embeddedModule?:RisuModule
+}
+
 export interface Database{
     characters: character[],
     apiType: string
@@ -1083,9 +1086,11 @@ export interface Database{
      * 'ctrl-enter'/'shift-enter': that combo sends (Enter newline);
      * 'button': only the send button (Enter newline). Replaces sendWithEnter. */
     sendKeyPC: 'enter' | 'ctrl-enter' | 'shift-enter' | 'button'
-    /** Mobile send-key mode. 'button': only the send button (Enter newline);
-     * 'enter': Enter sends (Shift+Enter newline). */
-    sendKeyMobile: 'button' | 'enter'
+    /** Mobile send-key mode. Same options as sendKeyPC for users with a
+     * Bluetooth/external keyboard. 'enter': Enter sends (Shift+Enter newline);
+     * 'ctrl-enter'/'shift-enter': that combo sends (Enter newline);
+     * 'button': only the send button (Enter newline). */
+    sendKeyMobile: 'enter' | 'ctrl-enter' | 'shift-enter' | 'button'
     fixedChatTextarea:boolean
     clickToEdit: boolean
     enableBlockPartialEdit: boolean
@@ -1134,14 +1139,7 @@ export interface Database{
     nanogptUseSubscriptionEndpoint:boolean
     openrouterFallback:boolean
     selectedPersona:number
-    personas:{
-        personaPrompt:string
-        name:string
-        icon:string
-        largePortrait?:boolean
-        id?:string
-        note?:string
-    }[]
+    personas:RisuPersona[]
     personaNote:boolean
     assetWidth:number
     animationSpeed:number
@@ -1211,15 +1209,6 @@ export interface Database{
     antiClaudeOverload:boolean
     ollamaURL:string
     ollamaModel:string
-    vercelKey:string
-    vercelRequestModel:string
-    vercelRequestModelName:string
-    vercelServiceTier:'auto' | 'default' | 'flex' | 'priority'
-    vercelPromptCacheRetention:'off' | '24h'
-    vercelGatewayCaching:boolean
-    llmGatewayKey:string
-    llmGatewayRequestModel:string
-    llmGatewayRequestModelName:string
     autoContinueChat:boolean
     autoContinueMinTokens:number
     removeIncompleteResponse:boolean
@@ -1337,8 +1326,7 @@ export interface Database{
     useExperimentalGoogleTranslator:boolean
     thinkingTokens: number
     thinkingType: 'off' | 'budget' | 'adaptive'
-    adaptiveThinkingEffort: 'low' | 'medium' | 'high' | 'xhigh' | 'max'
-    adaptiveThinkingDisplay: 'summarized' | 'omitted'
+    adaptiveThinkingEffort: 'low' | 'medium' | 'high' | 'max'
     antiServerOverloads: boolean
     hypaCustomSettings: {
         url: string,
@@ -1348,6 +1336,9 @@ export interface Database{
     localActivationInGlobalLorebook: boolean
     showFolderName: boolean
     automaticCachePoint: boolean
+    // Show the floating request-status toast (phase / thinking+response tokens /
+    // tok/s / stall) for model-preset requests. Memory-only UI feature; default on.
+    showRequestStatus: boolean
     chatCompression: boolean
     claudeRetrivalCaching: boolean
     outputImageModal: boolean
@@ -1439,6 +1430,10 @@ export interface Database{
     // legacy/V2 keys stay unrecorded. See pluginStorageMeta.ts.
     pluginStorageMeta?:{[key:string]:{plugin:string,updatedAt:number}}
     longPressToPopupEditor?: boolean
+    showInputActionBar?: boolean
+    moveInsteadOfCopyOnCMPConvert?:boolean
+    chatLoadInitialPages?: number
+    chatLoadAdditionalPages?: number
     ImagenModel:string
     ImagenImageSize:string
     ImagenAspectRatio:string
@@ -1477,27 +1472,14 @@ export interface Database{
     blockquoteStyling?:boolean
     dynamicModelRegistry?:boolean
     nodeOnlyScrollButtonType?:'four'|'two'|'off'
+    nodeOnlyHideRecentChats?:boolean
     seperateParametersByModel?:boolean
     disableSeperateParameterChangeOnPresetChange?:boolean
     saveSignatures?:boolean
     keepSessionAlive: 'off' | 'pip' | 'sound'
-    copilot?: {
-        githubTokens: string[]
-        keyRotate: 'sequential' | 'on-error'
-        simulationTarget: 'opencode' | 'vscode'
-        machineId: string
-        deviceId: string
-        vsCodeVersion: string
-        chatVersion: string
-    }
-    nanogpt?: {
-        apiKeys: string[]
-        keyRotate: 'sequential' | 'on-error'
-    }
 }
 
 export interface SeparateParameters{
-    maxResponse?:number
     temperature?:number
     top_k?:number
     repetition_penalty?:number
@@ -1509,8 +1491,7 @@ export interface SeparateParameters{
     reasoning_effort?:number
     thinking_tokens?:number
     thinking_type?: 'off' | 'budget' | 'adaptive'
-    adaptive_thinking_effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max'
-    adaptive_thinking_display?: 'summarized' | 'omitted'
+    adaptive_thinking_effort?: 'low' | 'medium' | 'high' | 'max'
     outputImageModal?:boolean
     verbosity?:number
 }
@@ -1652,6 +1633,21 @@ export interface character{
     private?:boolean
     additionalText:string
     oaiVoice?:string
+    oaiTTSConfig?:{
+        /** User opted into advanced OpenAI-compatible settings. When false/absent,
+         *  tts.ts ignores the other fields and uses the legacy oaiVoice + db.openAIKey path. */
+        enabled?: boolean
+        /** Base URL, trailing slash trimmed at runtime. Falls back to 'https://api.openai.com/v1'. */
+        baseURL?: string
+        /** Per-character API key. Falls back to db.openAIKey; the Authorization header is omitted entirely when both are empty. */
+        apiKey?: string
+        /** Model ID. Falls back to 'tts-1'. */
+        model?: string
+        /** Freeform voice ID for custom endpoints. Falls back to character.oaiVoice, then to 'alloy'. */
+        voice?: string
+        /** Response format. Falls back to 'mp3'. */
+        format?: 'mp3' | 'opus' | 'aac' | 'flac' | 'wav' | 'pcm'
+    }
     virtualscript?:string
     scriptstate?:{[key:string]:string|number|boolean}
     depth_prompt?: { depth: number, prompt: string }
@@ -1690,6 +1686,7 @@ export interface character{
     modules?:string[]
     coldstorage?:string
     coldStoragedChats?:string[]
+    customModuleToggle?:string
 }
 
 
@@ -1700,73 +1697,6 @@ export interface loreSettings{
     fullWordMatching?: boolean
 }
 
-export interface groupChat{ 
-    type: 'group'
-    image?:string
-    firstMessage:string
-    chats:Chat[]
-    chatFolders: ChatFolder[]
-    chatPage: number
-    name:string
-    viewScreen: 'single'|'multiple'|'none'|'emp',
-    characters:string[]
-    characterTalks:number[]
-    characterActive:boolean[]
-    globalLore: loreBook[]
-    autoMode: boolean
-    useCharacterLore :boolean
-    emotionImages: [string, string][]
-    customscript: customscript[],
-    chaId: string
-    alternateGreetings?: string[]
-    creatorNotes?:string,
-    removedQuotes?:boolean
-    firstMsgIndex?:number,
-    loreSettings?:loreSettings
-    supaMemory?:boolean
-    ttsMode?:string
-    suggestMessages?:string[]
-    orderByOrder?:boolean
-    backgroundHTML?:string,
-    reloadKeys?:number
-    backgroundCSS?:string
-    oneAtTime?:boolean
-    virtualscript?:string
-    trashTime?:number
-    nickname?:string
-    defaultVariables?:string
-    lowLevelAccess?:boolean
-    hideChatIcon?:boolean
-    lastInteraction?:number
-
-    //lazy hack for typechecking
-    voicevoxConfig?:any
-    ttsSpeech?:string
-    naittsConfig?:any
-    oaiVoice?:string
-    hfTTS?: any
-    vits?: OnnxModelFiles
-    gptSoVitsConfig?:any
-    fishSpeechConfig?:any
-    ttsReadOnlyQuoted?:boolean
-    exampleMessage?:string
-    systemPrompt?:string
-    replaceGlobalNote?:string
-    additionalText?:string
-    personality?:string
-    scenario?:string
-    translatorNote?:string
-    additionalData?: any
-    depth_prompt?: { depth: number, prompt: string }
-    additionalAssets?:[string, string, string][]
-    utilityBot?:boolean
-    license?:string
-    realmId:string
-    prebuiltAssetCommand?:boolean
-    prebuiltAssetStyle?:string
-    prebuiltAssetExclude?:string[]
-    modules?:string[]
-}
 
 export function purgeUnsupportedGroupChats(db: Database): number {
     const before = db.characters.length
@@ -1872,8 +1802,7 @@ export interface botPreset{
     reasonEffort?:number
     thinkingTokens?:number
     thinkingType?: 'off' | 'budget' | 'adaptive'
-    adaptiveThinkingEffort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max'
-    adaptiveThinkingDisplay?: 'summarized' | 'omitted'
+    adaptiveThinkingEffort?: 'low' | 'medium' | 'high' | 'max'
     outputImageModal?:boolean
     seperateModelsForAxModels?:boolean
     seperateModels?:{
@@ -2133,6 +2062,11 @@ export interface Chat{
     // it is restored on re-enable. Off (or absent) => classic global model path.
     useModelPreset?: boolean
     modelBinding?: ModelBindingSet
+    /** Per-chat opt-in: when this chat's MAIN request goes through a ModelPreset,
+     * override the preset's sampling parameters with the active prompt preset's
+     * (temperature, top_p, penalties, ...). Off (or absent) => preset params only.
+     * No effect in classic mode, where prompt-preset params already apply. */
+    usePromptPresetParams?: boolean
     /** Runtime-only: true while awaiting hydration from server. Never persisted. */
     _placeholder?: boolean
 }
@@ -2546,7 +2480,6 @@ export function saveCurrentPreset(){
         thinkingTokens: db.thinkingTokens ?? null,
         thinkingType: db.thinkingType ?? 'budget',
         adaptiveThinkingEffort: db.adaptiveThinkingEffort ?? 'high',
-        adaptiveThinkingDisplay: db.adaptiveThinkingDisplay ?? 'summarized',
         outputImageModal: db.outputImageModal ?? false,
         seperateModelsForAxModels: false,
         seperateModels: null,
@@ -2674,7 +2607,6 @@ export function setPreset(db:Database, newPres: botPreset){
     db.thinkingTokens = newPres.thinkingTokens ?? null
     db.thinkingType = newPres.thinkingType ?? 'budget'
     db.adaptiveThinkingEffort = newPres.adaptiveThinkingEffort ?? 'high'
-    db.adaptiveThinkingDisplay = newPres.adaptiveThinkingDisplay ?? 'summarized'
     db.outputImageModal = newPres.outputImageModal ?? false
     // Model config (separated aux models) is decoupled from prompt presets in v6:
     // switching a prompt preset no longer overwrites db.seperateModels. The global
