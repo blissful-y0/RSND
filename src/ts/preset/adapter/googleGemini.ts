@@ -1,4 +1,3 @@
-import { beginGeminiCacheTurn, type GeminiCacheTurn } from '../cache/geminiCacheWiring'
 import type { ModelPreset } from '../types'
 import {
     ModelPresetAdapterError,
@@ -36,70 +35,21 @@ interface GeminiContent {
     parts: GeminiPart[]
 }
 
-// Prepared request plus the context-cache inputs only this adapter can compute:
-// the wire model id and the cache boundary (last native message.cachePoint
-// mapped to a `contents` index). Extra fields are invisible to previewBody,
-// which serializes url/body/headers only.
-interface GeminiPreparedRequest extends AdapterPreparedRequest {
-    modelId: string
-    cacheBoundary: number | null
-}
-
-// Context caching pre-request step. Returns null (uncached request) unless
-// request.ts supplied a cache context AND the prompt carries a cachePoint AND
-// the cache layer decides to participate — see beginGeminiCacheTurn.
-function beginCacheTurn(
-    prepared: GeminiPreparedRequest,
-    options: AdapterChatOptions,
-    credential: AdapterCredential | undefined,
-): GeminiCacheTurn | null {
-    if (!options.cache) return null
-    return beginGeminiCacheTurn({
-        cache: options.cache,
-        url: prepared.url,
-        headers: prepared.headers,
-        body: prepared.body,
-        modelId: prepared.modelId,
-        credentialKey: credential?.apiKey,
-        boundaryIndex: prepared.cacheBoundary,
-        fetchImpl: options.fetchImpl,
-    })
-}
-
-// A chat call that carried a cachedContent can fail because the cache resource
-// is gone (server evicted it ahead of the local expiry) rather than because the
-// prompt is bad. Gemini surfaces a missing/forbidden cachedContent as 404 (not
-// found) or 403 (permission denied); these are the only statuses we retry
-// uncached, so a genuine prompt error (e.g. 400) still propagates unchanged.
-function isCacheRejection(status: number): boolean {
-    return status === 404 || status === 403
-}
-
 export async function sendGoogleChatRequest(
     preset: ModelPreset,
     options: AdapterChatOptions,
     credential?: AdapterCredential,
 ): Promise<AdapterChatResponse> {
     const prepared = await prepareGeminiBody(preset, options, credential, false)
-    const cacheTurn = beginCacheTurn(prepared, options, credential)
     const fetchImpl = options.fetchImpl ?? globalThis.fetch
-    const send = (body: Record<string, unknown>): Promise<Response> => fetchImpl(prepared.url, {
-        method: prepared.method,
-        headers: prepared.headers,
-        body: JSON.stringify(body),
-        signal: options.abortSignal,
-    })
     let response: Response
     try {
-        response = await send(cacheTurn ? cacheTurn.body : prepared.body)
-        // If an applied cachedContent was rejected (server evicted it before the
-        // local expiry), the cache — not the prompt — broke this turn. Drop the
-        // stale cache and retry once with the uncached body so caching never
-        // takes the chat down (spec §4-4).
-        if (!response.ok && cacheTurn?.appliedCache && isCacheRejection(response.status)) {
-            cacheTurn.invalidateAppliedCache()
-            response = await send(prepared.body)
-        }
+        response = await fetchImpl(prepared.url, {
+            method: prepared.method,
+            headers: prepared.headers,
+            body: JSON.stringify(prepared.body),
+            signal: options.abortSignal,
+        })
     } catch (err) {
         throw normalizeFetchError(err)
     }
@@ -117,11 +67,7 @@ export async function sendGoogleChatRequest(
         })
     }
 
-    const parsed = parseGeminiResponse(raw)
-    // Fire-and-forget cache lifecycle (create/extend/cleanup) off the observed
-    // usage; never blocks or fails the response.
-    cacheTurn?.finish(parsed.usage?.promptTokens)
-    return parsed
+    return parseGeminiResponse(raw)
 }
 
 export async function* streamGoogleChatRequest(
@@ -130,23 +76,15 @@ export async function* streamGoogleChatRequest(
     credential?: AdapterCredential,
 ): AsyncGenerator<AdapterChatStreamDelta, void, void> {
     const prepared = await prepareGeminiBody(preset, options, credential, true)
-    const cacheTurn = beginCacheTurn(prepared, options, credential)
     const fetchImpl = options.fetchImpl ?? globalThis.fetch
-    const send = (body: Record<string, unknown>): Promise<Response> => fetchImpl(prepared.url, {
-        method: prepared.method,
-        headers: { ...prepared.headers, Accept: 'text/event-stream' },
-        body: JSON.stringify(body),
-        signal: options.abortSignal,
-    })
     let response: Response
     try {
-        response = await send(cacheTurn ? cacheTurn.body : prepared.body)
-        // Same fallback as the non-stream path: a rejected applied cache drops
-        // the stale entry and retries uncached (spec §4-4).
-        if (!response.ok && cacheTurn?.appliedCache && isCacheRejection(response.status)) {
-            cacheTurn.invalidateAppliedCache()
-            response = await send(prepared.body)
-        }
+        response = await fetchImpl(prepared.url, {
+            method: prepared.method,
+            headers: { ...prepared.headers, Accept: 'text/event-stream' },
+            body: JSON.stringify(prepared.body),
+            signal: options.abortSignal,
+        })
     } catch (err) {
         throw normalizeFetchError(err)
     }
@@ -160,9 +98,6 @@ export async function* streamGoogleChatRequest(
     }
 
     try {
-        // usageMetadata arrives on the last SSE chunk; capture it so the cache
-        // lifecycle can run once the stream completes normally.
-        let lastUsage: AdapterUsage | undefined
         for await (const event of parseSseStream(response.body)) {
             if (event.data.length === 0) continue
             let raw: unknown
@@ -176,12 +111,8 @@ export async function* streamGoogleChatRequest(
                 )
             }
             const delta = parseGeminiStreamDelta(raw)
-            if (delta) {
-                if (delta.usage) lastUsage = delta.usage
-                yield delta
-            }
+            if (delta) yield delta
         }
-        cacheTurn?.finish(lastUsage?.promptTokens)
     } catch (err) {
         if (err instanceof ModelPresetAdapterError) throw err
         throw normalizeFetchError(err)
@@ -203,7 +134,7 @@ async function prepareGeminiBody(
     options: AdapterChatOptions,
     credential: AdapterCredential | undefined,
     stream: boolean,
-): Promise<GeminiPreparedRequest> {
+): Promise<AdapterPreparedRequest> {
     const prepared = await prepareAdapterRequest({
         preset,
         credential,
@@ -218,17 +149,8 @@ async function prepareGeminiBody(
     const modelId = resolveWireModelId(preset, { vendorName: 'Google Gemini' })
     delete prepared.body.model
 
-    const { system, chat, systemCachePoint } = collectSystemAndChat(options.messages)
-    const { contents, cacheBoundary } = toGeminiContents(chat)
-    // A cachePoint carried only by system messages (cache prompt card /
-    // automaticCachePoint landing on the system role) used to be dropped when
-    // collectSystemAndChat hoisted those messages into systemInstruction,
-    // silently disabling caching. When the chat side has no cachePoint of its
-    // own, fall back to boundary 0 = "cache the systemInstruction only": an
-    // empty cached-prefix of contents plus the full systemInstruction. A chat
-    // cachePoint always wins (it is the deeper, larger cacheable prefix).
-    const resolvedBoundary = cacheBoundary ?? (systemCachePoint ? 0 : null)
-    prepared.body.contents = contents
+    const { system, chat } = collectSystemAndChat(options.messages)
+    prepared.body.contents = toGeminiContents(chat)
     if (system.length > 0) {
         prepared.body.systemInstruction = { parts: [{ text: system }] }
     } else {
@@ -246,7 +168,7 @@ async function prepareGeminiBody(
 
     const suffix = stream ? ':streamGenerateContent?alt=sse' : ':generateContent'
     prepared.url = `${prepared.url}/${encodeURIComponent(modelId)}${suffix}`
-    return { ...prepared, modelId, cacheBoundary: resolvedBoundary }
+    return prepared
 }
 
 function toGeminiFunctionDeclaration(tool: AdapterToolDef): Record<string, unknown> {
@@ -256,26 +178,19 @@ function toGeminiFunctionDeclaration(tool: AdapterToolDef): Record<string, unkno
 function collectSystemAndChat(messages: AdapterChatMessage[]): {
     system: string
     chat: AdapterChatMessage[]
-    // True when any system message carried a cachePoint. These messages are
-    // hoisted into systemInstruction (which the cache always covers anyway), so
-    // their cachePoint would otherwise vanish; the caller folds it into a
-    // boundary-0 (systemInstruction-only) cache when the chat side has none.
-    systemCachePoint: boolean
 } {
     const systems: string[] = []
     const chat: AdapterChatMessage[] = []
-    let systemCachePoint = false
     for (const message of messages) {
         if (message.role === 'system') {
             systems.push(message.content)
-            if (message.cachePoint) systemCachePoint = true
         } else {
             // tool / user / assistant flow into the wire builder, which maps tool
             // results to functionResponse parts on a user turn (Gemini shape).
             chat.push(message)
         }
     }
-    return { system: systems.join('\n\n'), chat, systemCachePoint }
+    return { system: systems.join('\n\n'), chat }
 }
 
 // Build Gemini `contents`. Consecutive tool messages collapse into one `user`
@@ -283,36 +198,14 @@ function collectSystemAndChat(messages: AdapterChatMessage[]): {
 // Assistant ("model") turns emit thought parts first (carrying thoughtSignature),
 // then text, then functionCall parts — each functionCall echoing the signature
 // Gemini issued, which thinking models require on the follow-up request.
-//
-// cacheBoundary is the context-cache boundary mapped to a contents index: the
-// count of emitted contents up to AND INCLUDING the one holding the last
-// message flagged cachePoint (Anthropic allows multiple incremental points;
-// Gemini's single continuous prefix folds them to the deepest = the largest
-// cacheable prefix). Tracking happens here, in the same pass that collapses
-// tool turns, so the index can never drift from the wire shape. System
-// messages never reach this function (collectSystemAndChat hoists them into
-// systemInstruction), so a chat-side cachePoint here always wins; a cachePoint
-// carried ONLY by system messages yields null here and is folded into a
-// boundary-0 (systemInstruction-only) cache by prepareGeminiBody.
-function toGeminiContents(chat: AdapterChatMessage[]): {
-    contents: GeminiContent[]
-    cacheBoundary: number | null
-} {
+function toGeminiContents(chat: AdapterChatMessage[]): GeminiContent[] {
     const out: GeminiContent[] = []
     let pendingFnResponses: GeminiPart[] = []
-    let cacheBoundary: number | null = null
-    let pendingCachePoint = false
 
     const flush = () => {
         if (pendingFnResponses.length > 0) {
             out.push({ role: 'user', parts: pendingFnResponses })
             pendingFnResponses = []
-            // A collapsed tool turn carried a cachePoint: the boundary lands
-            // after the content it was folded into.
-            if (pendingCachePoint) {
-                cacheBoundary = out.length
-                pendingCachePoint = false
-            }
         }
     }
 
@@ -326,7 +219,6 @@ function toGeminiContents(chat: AdapterChatMessage[]): {
             // match unambiguously. Empty toolCallId → name-based matching.
             if (message.toolCallId) functionResponse.id = message.toolCallId
             pendingFnResponses.push({ functionResponse })
-            if (message.cachePoint) pendingCachePoint = true
             continue
         }
         flush()
@@ -340,10 +232,9 @@ function toGeminiContents(chat: AdapterChatMessage[]): {
         } else {
             out.push({ role: 'user', parts: toUserParts(message) })
         }
-        if (message.cachePoint) cacheBoundary = out.length
     }
     flush()
-    return { contents: out, cacheBoundary }
+    return out
 }
 
 // A user turn: the text part (when non-empty) followed by one inlineData part per
@@ -547,14 +438,10 @@ function parseGeminiUsage(raw: unknown): AdapterUsage | undefined {
     if (typeof raw['totalTokenCount'] === 'number') {
         usage.totalTokens = raw['totalTokenCount'] as number
     }
-    if (typeof raw['cachedContentTokenCount'] === 'number') {
-        usage.cachedTokens = raw['cachedContentTokenCount'] as number
-    }
     if (
         usage.promptTokens === undefined
         && usage.completionTokens === undefined
         && usage.totalTokens === undefined
-        && usage.cachedTokens === undefined
     ) {
         return undefined
     }

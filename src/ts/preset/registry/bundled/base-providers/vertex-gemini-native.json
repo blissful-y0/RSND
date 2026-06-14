@@ -81,34 +81,13 @@
       "description": "Gemini model id used on the Vertex URL path (publishers/google/models/{id}). Use the bare Gemini id without the 'google/' prefix. Leave blank to use the profile's model.",
       "required": false,
       "enum": [
-        {
-          "value": "gemini-3.5-flash",
-          "label": "Gemini 3.5 Flash"
-        },
-        {
-          "value": "gemini-3.1-pro-preview",
-          "label": "Gemini 3.1 Pro"
-        },
-        {
-          "value": "gemini-3.1-flash-lite",
-          "label": "Gemini 3.1 Flash-Lite"
-        },
-        {
-          "value": "gemini-3-flash-preview",
-          "label": "Gemini 3 Flash"
-        },
-        {
-          "value": "gemini-2.5-pro",
-          "label": "Gemini 2.5 Pro"
-        },
-        {
-          "value": "gemini-2.5-flash",
-          "label": "Gemini 2.5 Flash"
-        },
-        {
-          "value": "gemini-2.5-flash-lite",
-          "label": "Gemini 2.5 Flash-Lite"
-        }
+        { "value": "gemini-3.5-flash", "label": "Gemini 3.5 Flash" },
+        { "value": "gemini-3.1-pro-preview", "label": "Gemini 3.1 Pro" },
+        { "value": "gemini-3.1-flash-lite", "label": "Gemini 3.1 Flash-Lite" },
+        { "value": "gemini-3-flash-preview", "label": "Gemini 3 Flash" },
+        { "value": "gemini-2.5-pro", "label": "Gemini 2.5 Pro" },
+        { "value": "gemini-2.5-flash", "label": "Gemini 2.5 Flash" },
+        { "value": "gemini-2.5-flash-lite", "label": "Gemini 2.5 Flash-Lite" }
       ],
       "mapsTo": {
         "target": "body",
@@ -147,22 +126,10 @@
       "type": "string",
       "label": "Thinking Level",
       "enum": [
-        {
-          "value": "minimal",
-          "label": "Minimal"
-        },
-        {
-          "value": "low",
-          "label": "Low"
-        },
-        {
-          "value": "medium",
-          "label": "Medium"
-        },
-        {
-          "value": "high",
-          "label": "High"
-        }
+        { "value": "minimal", "label": "Minimal" },
+        { "value": "low", "label": "Low" },
+        { "value": "medium", "label": "Medium" },
+        { "value": "high", "label": "High" }
       ],
       "mapsTo": {
         "target": "body",
@@ -249,14 +216,8 @@
       "type": "string",
       "label": "Response Mime Type",
       "enum": [
-        {
-          "value": "text/plain",
-          "label": "Text"
-        },
-        {
-          "value": "application/json",
-          "label": "JSON"
-        }
+        { "value": "text/plain", "label": "Text" },
+        { "value": "application/json", "label": "JSON" }
       ],
       "mapsTo": {
         "target": "body",
@@ -278,18 +239,9 @@
       "label": "Shared Request Type",
       "description": "Vertex shared-quota processing tier. Flex is ~50% cheaper but higher-latency; Priority is premium pricing with consistent low latency. Both work only on the global endpoint and select Gemini models (Gemini 2.5 is not supported). Default is standard pay-as-you-go — pick Flex/Priority to opt in.",
       "enum": [
-        {
-          "value": "",
-          "label": "Standard (no Flex/Priority)"
-        },
-        {
-          "value": "flex",
-          "label": "Flex"
-        },
-        {
-          "value": "priority",
-          "label": "Priority"
-        }
+        { "value": "", "label": "Standard (no Flex/Priority)" },
+        { "value": "flex", "label": "Flex" },
+        { "value": "priority", "label": "Priority" }
       ],
       "mapsTo": {
         "target": "header",
@@ -302,85 +254,18 @@
   ],
   "uiSchema": {
     "groups": [
-      {
-        "id": "credentials",
-        "label": "Credentials",
-        "order": 1,
-        "labelI18n": {
-          "ko": "인증 정보"
-        }
-      },
-      {
-        "id": "project",
-        "label": "Project",
-        "order": 2,
-        "labelI18n": {
-          "ko": "프로젝트"
-        }
-      },
-      {
-        "id": "model",
-        "label": "Model",
-        "order": 3,
-        "labelI18n": {
-          "ko": "모델"
-        }
-      },
-      {
-        "id": "generation",
-        "label": "Generation",
-        "order": 4,
-        "labelI18n": {
-          "ko": "생성"
-        }
-      },
-      {
-        "id": "reasoning",
-        "label": "Reasoning",
-        "order": 5,
-        "labelI18n": {
-          "ko": "추론"
-        }
-      },
-      {
-        "id": "output",
-        "label": "Output",
-        "order": 6,
-        "labelI18n": {
-          "ko": "출력"
-        }
-      },
-      {
-        "id": "quota",
-        "label": "Quota",
-        "order": 7,
-        "labelI18n": {
-          "ko": "할당량"
-        }
-      }
+      { "id": "credentials", "label": "Credentials", "order": 1, "labelI18n": { "ko": "인증 정보" } },
+      { "id": "project", "label": "Project", "order": 2, "labelI18n": { "ko": "프로젝트" } },
+      { "id": "model", "label": "Model", "order": 3, "labelI18n": { "ko": "모델" } },
+      { "id": "generation", "label": "Generation", "order": 4, "labelI18n": { "ko": "생성" } },
+      { "id": "reasoning", "label": "Reasoning", "order": 5, "labelI18n": { "ko": "추론" } },
+      { "id": "output", "label": "Output", "order": 6, "labelI18n": { "ko": "출력" } },
+      { "id": "quota", "label": "Quota", "order": 7, "labelI18n": { "ko": "할당량" } }
     ],
     "fields": [
-      {
-        "key": "serviceAccountJson",
-        "widget": "secret",
-        "visibility": "basic",
-        "group": "credentials",
-        "order": 1
-      },
-      {
-        "key": "location",
-        "widget": "text",
-        "visibility": "basic",
-        "group": "project",
-        "order": 1
-      },
-      {
-        "key": "projectId",
-        "widget": "text",
-        "visibility": "advanced",
-        "group": "project",
-        "order": 2
-      },
+      { "key": "serviceAccountJson", "widget": "secret", "visibility": "basic", "group": "credentials", "order": 1 },
+      { "key": "location", "widget": "text", "visibility": "basic", "group": "project", "order": 1 },
+      { "key": "projectId", "widget": "text", "visibility": "advanced", "group": "project", "order": 2 },
       {
         "key": "endpointUrl",
         "widget": "text",
@@ -389,105 +274,20 @@
         "order": 3,
         "placeholder": "https://aiplatform.googleapis.com/v1/projects/PROJECT_ID/locations/global/publishers/google/models"
       },
-      {
-        "key": "modelId",
-        "widget": "combobox",
-        "visibility": "basic",
-        "group": "model",
-        "order": 1,
-        "placeholder": "gemini-3-flash-preview"
-      },
-      {
-        "key": "temperature",
-        "widget": "slider",
-        "visibility": "basic",
-        "group": "generation",
-        "order": 1
-      },
-      {
-        "key": "maxOutputTokens",
-        "widget": "number-input",
-        "visibility": "basic",
-        "group": "generation",
-        "order": 2
-      },
-      {
-        "key": "topP",
-        "widget": "slider",
-        "visibility": "advanced",
-        "group": "generation",
-        "order": 3
-      },
-      {
-        "key": "topK",
-        "widget": "number-input",
-        "visibility": "advanced",
-        "group": "generation",
-        "order": 4
-      },
-      {
-        "key": "presencePenalty",
-        "widget": "slider",
-        "visibility": "advanced",
-        "group": "generation",
-        "order": 5
-      },
-      {
-        "key": "frequencyPenalty",
-        "widget": "slider",
-        "visibility": "advanced",
-        "group": "generation",
-        "order": 6
-      },
-      {
-        "key": "stopSequences",
-        "widget": "string-array",
-        "visibility": "advanced",
-        "group": "generation",
-        "order": 7
-      },
-      {
-        "key": "seed",
-        "widget": "number-input",
-        "visibility": "advanced",
-        "group": "generation",
-        "order": 8
-      },
-      {
-        "key": "thinkingLevel",
-        "widget": "select",
-        "visibility": "basic",
-        "group": "reasoning",
-        "order": 1
-      },
-      {
-        "key": "includeThoughts",
-        "widget": "toggle",
-        "visibility": "advanced",
-        "group": "reasoning",
-        "order": 2
-      },
-      {
-        "key": "responseMimeType",
-        "widget": "select",
-        "visibility": "advanced",
-        "group": "output",
-        "order": 1
-      },
-      {
-        "key": "safetySettings",
-        "widget": "json",
-        "visibility": "advanced",
-        "group": "output",
-        "order": 2
-      },
-      {
-        "key": "sharedRequestType",
-        "widget": "select",
-        "visibility": "advanced",
-        "group": "quota",
-        "order": 1
-      }
+      { "key": "modelId", "widget": "combobox", "visibility": "basic", "group": "model", "order": 1, "placeholder": "gemini-3-flash-preview" },
+      { "key": "temperature", "widget": "slider", "visibility": "basic", "group": "generation", "order": 1 },
+      { "key": "maxOutputTokens", "widget": "number-input", "visibility": "basic", "group": "generation", "order": 2 },
+      { "key": "topP", "widget": "slider", "visibility": "advanced", "group": "generation", "order": 3 },
+      { "key": "topK", "widget": "number-input", "visibility": "advanced", "group": "generation", "order": 4 },
+      { "key": "presencePenalty", "widget": "slider", "visibility": "advanced", "group": "generation", "order": 5 },
+      { "key": "frequencyPenalty", "widget": "slider", "visibility": "advanced", "group": "generation", "order": 6 },
+      { "key": "stopSequences", "widget": "string-array", "visibility": "advanced", "group": "generation", "order": 7 },
+      { "key": "seed", "widget": "number-input", "visibility": "advanced", "group": "generation", "order": 8 },
+      { "key": "thinkingLevel", "widget": "select", "visibility": "basic", "group": "reasoning", "order": 1 },
+      { "key": "includeThoughts", "widget": "toggle", "visibility": "advanced", "group": "reasoning", "order": 2 },
+      { "key": "responseMimeType", "widget": "select", "visibility": "advanced", "group": "output", "order": 1 },
+      { "key": "safetySettings", "widget": "json", "visibility": "advanced", "group": "output", "order": 2 },
+      { "key": "sharedRequestType", "widget": "select", "visibility": "advanced", "group": "quota", "order": 1 }
     ]
   },
   "capabilities": [

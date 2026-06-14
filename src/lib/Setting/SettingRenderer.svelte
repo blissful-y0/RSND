@@ -13,10 +13,8 @@
         /** Optional subModelInfo, derived automatically if not provided */
         subModelInfo?: LLMModel;
         /** 'row' renders row-capable wrappers (select/text/slider) with the label
-         * + inline help on the left and the control right-aligned. 'block' renders
-         * the ModelPreset-editor field grammar (label row + full-width control).
-         * Default 'stacked'. */
-        layout?: 'stacked' | 'row' | 'block';
+         * + inline help on the left and the control right-aligned. Default 'stacked'. */
+        layout?: 'stacked' | 'row';
     }
 
     let { items, modelInfo, subModelInfo, layout = 'stacked' }: Props = $props();
@@ -51,12 +49,6 @@
     <!-- Row wrappers carry their own top border; custom items (warnings,
          editors) don't, so they attach to the option above with no divider.
          Drop the very first row's leading border. -->
-    <div class="[&>*:first-child]:border-t-0">
-        {@render itemList()}
-    </div>
-{:else if layout === 'block'}
-    <!-- Block fields share the row layout's divider rhythm (border-t per field,
-         first divider dropped) — see AccessibilitySettings for the reference. -->
     <div class="[&>*:first-child]:border-t-0">
         {@render itemList()}
     </div>
