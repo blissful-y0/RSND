@@ -55,7 +55,4 @@
 <SegmentedControl
     bind:value={localValue}
     options={processedOptions}
-    size={item.options?.segmentSize ?? 'md'}
-    wrap={item.options?.segmentWrap ?? false}
-    fullWidth={item.options?.segmentFullWidth ?? false}
 />

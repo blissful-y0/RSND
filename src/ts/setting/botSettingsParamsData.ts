@@ -7,22 +7,6 @@
 
 import type { SettingItem } from './types';
 import { LLMFlags } from '../model/types';
-import {
-    dbReasoningEffortToUi,
-    dbVerbosityToUi,
-    reasoningEffortSelectOptions,
-    uiReasoningEffortToDb,
-    uiVerbosityToDb,
-    verbositySelectOptions,
-} from '../model/reasoningVerbosity';
-import {
-    geminiThinkingLevelToTokens,
-    geminiThinkingTokensToLevel,
-    isGeminiThinkingLevelModel,
-    supportsGeminiMediumThinking,
-    supportsGeminiMinimalThinking,
-    type GeminiThinkingLevel,
-} from '../model/geminiThinking';
 
 /**
  * Basic parameter settings that are always visible
@@ -163,29 +147,6 @@ export const modelSpecificParameterItems: SettingItem[] = [
         keywords: ['thinking', 'type', 'mode', 'adaptive', 'budget'],
     },
     {
-        id: 'params.geminiThinkingLevel',
-        type: 'segmented',
-        fallbackLabel: 'Gemini Thinking Level',
-        helpKey: 'thinkingTokens',
-        bindKey: 'thinkingTokens',
-        condition: (ctx) => isGeminiThinkingLevelModel(ctx),
-        getValue: (db, ctx) => geminiThinkingTokensToLevel(db.thinkingTokens, ctx!),
-        setValue: (db, val) => {
-            db.thinkingTokens = geminiThinkingLevelToTokens(val as GeminiThinkingLevel);
-        },
-        options: {
-            segmentOptions: [
-                { value: 'minimal', label: 'Minimal', condition: supportsGeminiMinimalThinking },
-                { value: 'low', label: 'Low' },
-                { value: 'medium', label: 'Medium', condition: supportsGeminiMediumThinking },
-                { value: 'high', label: 'High' },
-            ],
-            segmentFullWidth: true,
-            segmentSize: 'sm',
-        },
-        keywords: ['gemini', 'thinking', 'level', 'reasoning'],
-    },
-    {
         id: 'params.thinkingTokens',
         type: 'slider',
         labelKey: 'thinkingTokens',
@@ -193,11 +154,7 @@ export const modelSpecificParameterItems: SettingItem[] = [
         bindKey: 'thinkingTokens',
         condition: (ctx) =>
             ctx.modelInfo.parameters.includes('thinking_tokens') &&
-            !isGeminiThinkingLevelModel(ctx) &&
-            (
-                ctx.modelInfo.flags.includes(LLMFlags.geminiThinking) ||
-                ctx.db.thinkingType === 'budget'
-            ),
+            ctx.db.thinkingType === 'budget',
         options: {
             min: -1,
             max: 64000,
@@ -220,27 +177,10 @@ export const modelSpecificParameterItems: SettingItem[] = [
                 { value: 'low', label: 'Low' },
                 { value: 'medium', label: 'Medium' },
                 { value: 'high', label: 'High' },
-                { value: 'xhigh', label: 'XHigh' },
                 { value: 'max', label: 'Max' },
             ]
         },
         keywords: ['adaptive', 'thinking', 'effort'],
-    },
-    {
-        id: 'params.adaptiveThinkingDisplay',
-        type: 'segmented',
-        labelKey: 'adaptiveThinkingDisplay',
-        bindKey: 'adaptiveThinkingDisplay',
-        condition: (ctx) =>
-            ctx.modelInfo.flags.includes(LLMFlags.claudeAdaptiveThinking) &&
-            ctx.db.thinkingType === 'adaptive',
-        options: {
-            segmentOptions: [
-                { value: 'summarized', label: 'Summarized' },
-                { value: 'omitted', label: 'Omitted' },
-            ]
-        },
-        keywords: ['adaptive', 'thinking', 'display', 'summarized', 'omitted'],
     },
     {
         id: 'params.topK',
@@ -307,44 +247,33 @@ export const modelSpecificParameterItems: SettingItem[] = [
     },
     {
         id: 'params.reasoningEffort',
-        type: 'segmented',
+        type: 'slider',
         fallbackLabel: 'Reasoning Effort',
         helpKey: 'reasoningEffort',
         bindKey: 'reasoningEffort',
         condition: (ctx) => ctx.modelInfo.parameters.includes('reasoning_effort'),
-        getValue: (db) => dbReasoningEffortToUi(db.reasoningEffort),
-        setValue: (db, val) => {
-            db.reasoningEffort = uiReasoningEffortToDb(val)
-        },
         options: {
-            segmentOptions: reasoningEffortSelectOptions.map((option) => ({
-                value: option.value,
-                label: option.label,
-            })),
-            segmentWrap: true,
-            segmentFullWidth: true,
-            segmentSize: 'sm',
+            min: -1,
+            max: 2,
+            step: 1,
+            fixed: 0,
+            disableable: true,
         },
         keywords: ['reasoning', 'effort'],
     },
     {
         id: 'params.verbosity',
-        type: 'segmented',
+        type: 'slider',
         fallbackLabel: 'Verbosity',
         helpKey: 'verbosity',
         bindKey: 'verbosity',
         condition: (ctx) => ctx.modelInfo.parameters.includes('verbosity'),
-        getValue: (db) => dbVerbosityToUi(db.verbosity),
-        setValue: (db, val) => {
-            db.verbosity = uiVerbosityToDb(val)
-        },
         options: {
-            segmentOptions: verbositySelectOptions.map((option) => ({
-                value: option.value,
-                label: option.label,
-            })),
-            segmentFullWidth: true,
-            segmentSize: 'sm',
+            min: 0,
+            max: 2,
+            step: 1,
+            fixed: 0,
+            disableable: true,
         },
         keywords: ['verbosity', 'length'],
     },
@@ -361,7 +290,6 @@ export const allBasicParameterItems: SettingItem[] = [
 
     // Model-specific sampling parameters (in user-specified order)
     modelSpecificParameterItems.find(i => i.id === 'params.thinkingType')!,
-    modelSpecificParameterItems.find(i => i.id === 'params.geminiThinkingLevel')!,
     modelSpecificParameterItems.find(i => i.id === 'params.thinkingTokens')!,
     modelSpecificParameterItems.find(i => i.id === 'params.adaptiveThinkingEffort')!,
     ...samplingParameterItems, // temperature

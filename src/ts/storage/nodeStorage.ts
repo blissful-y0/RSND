@@ -39,6 +39,7 @@ export interface PatchItemResult {
 
 export class NodeStorage{
     private static readonly BULK_WRITE_CLIENT_BATCH = 20
+
     // Unique per page load — used for cross-device single-writer lock
     private static sessionId: string =
         crypto?.randomUUID?.() ?? (Date.now().toString(36) + Math.random().toString(36).slice(2))
@@ -57,14 +58,6 @@ export class NodeStorage{
         }
         const token = await this._refreshToken()
         return token
-    }
-
-    getCachedAuthForKeepalive() {
-        const now = Date.now()
-        if (this.cachedJwt && this.cachedJwt.expiresAt - now > 30_000) {
-            return this.cachedJwt.token
-        }
-        return ''
     }
 
     // Called once after JWT auth is confirmed. Issues a session cookie so that
