@@ -509,6 +509,12 @@ async function cleanChunks() {
             continue
         }
         else if (asset.startsWith('assets/')) {
+            // NodeOnly stores assets in a server-wide KV namespace shared by
+            // every browser and device.  A client's in-memory database can be
+            // stale or chat-stripped, so it must never garbage-collect that
+            // shared namespace from a boot-time scan.  Server-side deletion is
+            // guarded separately and remains available for explicit cleanup.
+            if ((globalThis as typeof globalThis & { __NODE__?: boolean }).__NODE__) continue
             const n = getBasename(asset)
             if(!uncleanable.has(n)) {
                 await forageStorage.removeItem(asset)

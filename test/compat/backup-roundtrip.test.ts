@@ -152,6 +152,83 @@ describe('asset round-trip', () => {
     // Both count and content (sha256) must match
     expect(afterFingerprints).toEqual(beforeFingerprints)
   })
+
+  test('incomplete asset backup is rejected atomically and prior data survives', async () => {
+    const srv = await spawnServer()
+    servers.push(srv)
+    const client = await createClient(srv.port, srv.password)
+
+    const complete = createSeedBackup({
+      characterCount: 2,
+      includeAssets: true,
+      referenceAssets: true,
+    })
+    const completeResult = await client.importBackup(complete)
+    expect(completeResult.ok).toBe(true)
+    const before = await client.exportBackup()
+
+    const incomplete = createSeedBackup({
+      characterCount: 1,
+      includeAssets: false,
+      referenceAssets: true,
+    })
+    const importResult = await client.importBackup(incomplete)
+    expect(importResult.ok).not.toBe(true)
+    expect(importResult.error).toContain('Backup is incomplete')
+
+    const after = await client.exportBackup()
+    expect(normalizeBackup(after).normalized.characters)
+      .toEqual(normalizeBackup(before).normalized.characters)
+    expect(fingerprintAssets(after)).toEqual(fingerprintAssets(before))
+  })
+
+  test('remove refuses stale sessions and database-referenced assets', async () => {
+    const srv = await spawnServer()
+    servers.push(srv)
+    const client = await createClient(srv.port, srv.password)
+
+    const seed = createSeedBackup({
+      characterCount: 1,
+      includeAssets: true,
+      referenceAssets: true,
+    })
+    expect((await client.importBackup(seed)).ok).toBe(true)
+
+    const activeSessionId = 'active-test-session'
+    const sessionRes = await client.fetch('/api/session', {
+      method: 'POST',
+      headers: { 'x-session-id': activeSessionId },
+    })
+    expect(sessionRes.ok).toBe(true)
+
+    const assetKey = `assets/${String(0).padStart(64, '0')}.png`
+    const filePath = Buffer.from(assetKey, 'utf-8').toString('hex')
+    const anonymousRemove = await client.fetch('/api/remove', {
+      headers: { 'file-path': filePath },
+    })
+    expect(anonymousRemove.status).toBe(428)
+
+    const staleRemove = await client.fetch('/api/remove', {
+      headers: {
+        'file-path': filePath,
+        'x-session-id': 'stale-test-session',
+      },
+    })
+    expect(staleRemove.status).toBe(423)
+
+    const activeRemove = await client.fetch('/api/remove', {
+      headers: {
+        'file-path': filePath,
+        'x-session-id': activeSessionId,
+      },
+    })
+    expect(activeRemove.status).toBe(409)
+    const activeBody = await activeRemove.json() as { code?: string }
+    expect(activeBody.code).toBe('ASSET_STILL_REFERENCED')
+
+    const exported = await client.exportBackup()
+    expect(fingerprintAssets(exported)).toHaveLength(1)
+  })
 })
 
 // ─── Upstream-compatible export ────────────────────────────────────────────

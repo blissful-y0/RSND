@@ -35,6 +35,8 @@ export interface SeedOptions {
   messagesPerChat?: number
   /** Include dummy asset entries in the backup (default false). */
   includeAssets?: boolean
+  /** Reference the deterministic dummy assets from character images. */
+  referenceAssets?: boolean
   /** Cold storage character stubs to include in the backup. */
   coldStorageCharacters?: ColdStorageCharacterSpec[]
 }
@@ -45,6 +47,7 @@ export function createSeedBackup(opts: SeedOptions = {}): Buffer {
     chatsPerCharacter = 1,
     messagesPerChat = 2,
     includeAssets = false,
+    referenceAssets = false,
     coldStorageCharacters = [],
   } = opts
 
@@ -70,7 +73,7 @@ export function createSeedBackup(opts: SeedOptions = {}): Buffer {
       firstMessage: 'Hello!',
       chats,
       chatPage: 0,
-      image: '',
+      image: referenceAssets ? `assets/${String(ci).padStart(64, '0')}.png` : '',
       type: 'character',
     }
   })
@@ -126,8 +129,8 @@ export function createSeedBackup(opts: SeedOptions = {}): Buffer {
   if (includeAssets) {
     for (let i = 0; i < characterCount; i++) {
       // Asset entry names have no prefix — server prepends 'assets/' on import
-      const hexKey = Buffer.from(`test-asset-${i}`).toString('hex')
-      entries.push({ name: hexKey, data: Buffer.from(`fake-png-data-${i}`) })
+      const assetName = `${String(i).padStart(64, '0')}.png`
+      entries.push({ name: assetName, data: Buffer.from(`fake-png-data-${i}`) })
     }
   }
 
