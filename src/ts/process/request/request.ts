@@ -539,7 +539,7 @@ function previewModelPreset(
 // chatId (= the message generationId) is threaded into fetchNative so the
 // request is recorded in the fetch log against the message — otherwise the
 // per-message "view log" shows "deleted log" for binding requests.
-function makeProxiedFetch(chatId?: string): typeof fetch {
+function makeProxiedFetch(chatId?: string, adapterKind?: AdapterKind): typeof fetch {
     return ((input: RequestInfo | URL, init?: RequestInit) => {
         const url = typeof input === 'string' ? input : input.toString()
         return fetchNative(url, {
@@ -548,6 +548,10 @@ function makeProxiedFetch(chatId?: string): typeof fetch {
             body: init?.body as string,
             signal: init?.signal ?? undefined,
             chatId,
+            // ModelPreset adapters previously bypassed the plugin body-interceptor
+            // pipeline. Expose the adapter kind so request-transform plugins can
+            // opt into only the wire formats they understand.
+            interceptor: adapterKind ? `model_preset:${adapterKind}` : undefined,
             // Local providers (e.g. self-hosted Ollama) must route through the node
             // proxy rather than a browser-direct fetch to a private address.
             networkRoute: isLocalNetworkUrl(url) ? 'local_network' : 'auto',
@@ -679,7 +683,7 @@ function formatPresetReasoning(reasoning?: AdapterReasoningPart[]): string {
 async function requestModelPreset(arg:RequestDataArgumentExtended, preset:ModelPreset, abortSignal:AbortSignal=null, mode:ModelModeExtended='model'):Promise<requestDataResponse> {
     const credential = buildModelPresetCredential(preset)
     const kind = preset.profileSnapshot.adapterKind
-    const fetchImpl = makeProxiedFetch(arg.chatId)
+    const fetchImpl = makeProxiedFetch(arg.chatId, kind)
     // arg.chatId is the per-request generationId for main chat (sendChat passes
     // it under that name; see generation-state-keying.md §1-bis). Aux requests
     // (translate/memory/emotion/sub) don't supply one, so mint a per-request key
