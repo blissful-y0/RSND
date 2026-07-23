@@ -2139,6 +2139,35 @@ function resolveBackupStorageKey(name) {
     return `assets/${name}`;
 }
 
+/**
+ * Collect every NodeOnly asset key referenced anywhere in a decoded database.
+ * Keep this deliberately schema-agnostic: image-bearing fields have expanded
+ * over time (personas, modules, sounds, cards, etc.), and a narrow allow-list
+ * can silently miss a new field and recreate the same data-loss bug.
+ */
+function collectReferencedAssetKeys(databaseObject) {
+    const referenced = new Set();
+    const seen = new Set();
+    const pending = [databaseObject];
+
+    while (pending.length > 0) {
+        const value = pending.pop();
+        if (typeof value === 'string') {
+            if (value.startsWith('assets/')) referenced.add(value);
+            continue;
+        }
+        if (!value || typeof value !== 'object' || seen.has(value)) continue;
+        seen.add(value);
+        if (Array.isArray(value)) {
+            for (const item of value) pending.push(item);
+        } else {
+            for (const item of Object.values(value)) pending.push(item);
+        }
+    }
+
+    return referenced;
+}
+
 function parseBackupChunk(buffer, onEntry) {
     let offset = 0;
     while (offset + 4 <= buffer.length) {
@@ -2167,7 +2196,6 @@ function parseBackupChunk(buffer, onEntry) {
 // ─── Shared backup import logic ─────────────────────────────────────────────
 // Accepts any async iterable of Buffer chunks (HTTP request body, file stream, etc.)
 async function importBackupFromSource(dataSource, { maxBytes = 0, totalBytes = 0, onProgress = null } = {}) {
-    const BATCH_SIZE = 5000;
     // Defer Buffer.concat until enough bytes for the next entry are buffered.
     // Concatenating on every chunk arrival is O(n²) when a single entry (e.g.
     // database.risudat) far exceeds chunk size.
@@ -2177,7 +2205,8 @@ async function importBackupFromSource(dataSource, { maxBytes = 0, totalBytes = 0
     let hasDatabase = false;
     let assetsRestored = 0;
     let bytesReceived = 0;
-    let batchCount = 0;
+    let importedDatabaseBuffer = null;
+    const importedAssetKeys = new Set();
     const seenEntryNames = new Set();
     const importedInlayIds = new Set();
     const importedSidecarIds = new Set();
@@ -2341,16 +2370,13 @@ async function importBackupFromSource(dataSource, { maxBytes = 0, totalBytes = 0
                     kvSet(storageKey, storageValue);
                     if (storageKey === 'database/database.bin') {
                         hasDatabase = true;
+                        importedDatabaseBuffer = Buffer.from(storageValue);
                     } else {
                         assetsRestored += 1;
+                        if (storageKey.startsWith('assets/')) {
+                            importedAssetKeys.add(storageKey);
+                        }
                     }
-                }
-
-                batchCount++;
-                if (batchCount >= BATCH_SIZE) {
-                    sqliteDb.exec('COMMIT');
-                    sqliteDb.exec('BEGIN');
-                    batchCount = 0;
                 }
             });
 
@@ -2379,6 +2405,27 @@ async function importBackupFromSource(dataSource, { maxBytes = 0, totalBytes = 0
         }
         if (!hasDatabase) {
             throw new Error('Backup does not contain database.risudat');
+        }
+        // Validate before the only COMMIT.  A .bin containing a database but
+        // only some of its referenced assets is not a restorable backup.  The
+        // old importer accepted it after deleting the existing asset namespace,
+        // which made a partial export look like a successful restore.
+        let importedDatabase;
+        try {
+            importedDatabase = await decodeRisuSave(importedDatabaseBuffer);
+        } catch (decodeError) {
+            throw new Error(`Backup database could not be decoded: ${decodeError?.message || decodeError}`);
+        }
+        const referencedAssetKeys = collectReferencedAssetKeys(importedDatabase);
+        const missingAssetKeys = Array.from(referencedAssetKeys)
+            .filter((key) => !importedAssetKeys.has(key))
+            .sort();
+        if (missingAssetKeys.length > 0) {
+            const sample = missingAssetKeys.slice(0, 3).join(', ');
+            throw new Error(
+                `Backup is incomplete: ${missingAssetKeys.length} referenced asset(s) are missing` +
+                (sample ? ` (${sample}${missingAssetKeys.length > 3 ? ', ...' : ''})` : '')
+            );
         }
         for (const [id, info] of legacyInlayInfoMap.entries()) {
             if (importedInlayIds.has(id) && !importedSidecarIds.has(id)) {
@@ -3346,6 +3393,17 @@ app.get('/api/remove', async (req, res, next) => {
     if(!await checkAuth(req, res)){
         return;
     }
+    // Unlike ordinary write endpoints, asset deletion cannot safely support
+    // legacy clients without a writer identity: an old cached bundle is one of
+    // the exact ways the shared-store cleanup race can recur.
+    if (!req.headers['x-session-id']) {
+        res.status(428).send({
+            error: 'Asset/storage deletion requires an active client session',
+            code: 'SESSION_ID_REQUIRED',
+        });
+        return;
+    }
+    if (!checkActiveSession(req, res)) return;
     const filePath = req.headers['file-path'];
     if (!filePath) {
         res.status(400).send({ error:'File path required' });
@@ -3357,6 +3415,34 @@ app.get('/api/remove', async (req, res, next) => {
     }
     try {
         const key = Buffer.from(filePath, 'hex').toString('utf-8');
+        if (key.startsWith('assets/')) {
+            const databaseBuffer = kvGet('database/database.bin');
+            if (!databaseBuffer) {
+                res.status(503).send({
+                    error: 'Asset deletion refused because the database is unavailable',
+                    code: 'ASSET_DELETE_DB_UNAVAILABLE',
+                });
+                return;
+            }
+            let databaseObject;
+            try {
+                databaseObject = await decodeRisuSave(databaseBuffer);
+            } catch (decodeError) {
+                logger.error('[Remove] Asset deletion refused because database decoding failed', decodeError);
+                res.status(503).send({
+                    error: 'Asset deletion refused because database integrity could not be verified',
+                    code: 'ASSET_DELETE_DB_INVALID',
+                });
+                return;
+            }
+            if (collectReferencedAssetKeys(databaseObject).has(key)) {
+                res.status(409).send({
+                    error: 'Asset deletion refused because the database still references it',
+                    code: 'ASSET_STILL_REFERENCED',
+                });
+                return;
+            }
+        }
         if (key.startsWith('inlay/')) {
             const id = key.slice('inlay/'.length)
             await deleteInlayFile(id)
