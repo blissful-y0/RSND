@@ -1,5 +1,8 @@
 node_modules
 save
+.env
+.env.*
+cloudflared/credentials.json
 .git
 .github
 .claude
