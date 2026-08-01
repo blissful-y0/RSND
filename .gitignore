@@ -51,6 +51,7 @@ dist.zip
 !/scripts/termux/
 !/scripts/check-help-keys.mjs
 .env
+/cloudflared/credentials.json
 /server/node/ssl/certificate
 /bin/
 

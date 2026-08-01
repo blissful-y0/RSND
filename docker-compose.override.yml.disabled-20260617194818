@@ -1,0 +1,14 @@
+# Disabled after full restore on 2026-06-17; kept only as a rollback note.
+# Old data volume is NOT deleted: risuai_risuai-save
+# Backups are in /Users/bliss/.openclaw/workspace/backups/risuai/.
+services:
+  risuai:
+    image: ghcr.io/blissful-y0/rsnd:latest
+    pull_policy: always
+    volumes:
+      - risuai-fresh-save:/app/save
+
+volumes:
+  risuai-fresh-save:
+    external: true
+    name: risuai_fresh_20260617152350

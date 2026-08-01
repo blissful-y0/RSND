@@ -1,0 +1,7 @@
+# Track the image continuously published from the main branch (`latest`).
+services:
+  risuai:
+    image: ghcr.io/blissful-y0/rsnd:latest
+    pull_policy: always
+    labels:
+      com.centurylinklabs.watchtower.enable: "true"

@@ -302,3 +302,122 @@ jobs:
             core.info(`Cleanup done: deleted ${deleted} orphaned versions`);
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  deploy-production:
+    needs: merge
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check deploy secrets
+        id: secrets
+        env:
+          DEPLOY_WEBHOOK_URL: ${{ secrets.DEPLOY_WEBHOOK_URL }}
+          DEPLOY_WEBHOOK_TOKEN: ${{ secrets.DEPLOY_WEBHOOK_TOKEN }}
+          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+          DISCORD_DEPLOY_WEBHOOK_URL: ${{ secrets.DISCORD_DEPLOY_WEBHOOK_URL }}
+        run: |
+          missing=0
+          for name in DEPLOY_WEBHOOK_URL DEPLOY_WEBHOOK_TOKEN; do
+            if [ -z "${!name}" ]; then
+              echo "::warning title=Deploy skipped::$name is not configured"
+              missing=1
+            fi
+          done
+
+          if [ -z "$CF_ACCESS_CLIENT_ID" ] || [ -z "$CF_ACCESS_CLIENT_SECRET" ]; then
+            echo "::warning title=Deploy without Cloudflare Access::CF_ACCESS_CLIENT_ID/CF_ACCESS_CLIENT_SECRET not configured"
+          fi
+
+          if [ "$missing" -eq 1 ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+          if [ -n "$DISCORD_DEPLOY_WEBHOOK_URL" ]; then
+            echo "has_discord=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_discord=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Trigger production deploy
+        if: steps.secrets.outputs.skip != 'true'
+        env:
+          DEPLOY_WEBHOOK_URL: ${{ secrets.DEPLOY_WEBHOOK_URL }}
+          DEPLOY_WEBHOOK_TOKEN: ${{ secrets.DEPLOY_WEBHOOK_TOKEN }}
+          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+        run: |
+          headers=(-H "Authorization: Bearer $DEPLOY_WEBHOOK_TOKEN")
+
+          if [ -n "$CF_ACCESS_CLIENT_ID" ] && [ -n "$CF_ACCESS_CLIENT_SECRET" ]; then
+            headers+=(-H "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID")
+            headers+=(-H "CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET")
+          fi
+
+          curl --retry 5 --retry-delay 2 --retry-connrefused \
+            -fsS -X POST "$DEPLOY_WEBHOOK_URL" \
+            "${headers[@]}"
+
+      - name: Notify Discord on deploy success
+        if: success() && steps.secrets.outputs.skip != 'true' && steps.secrets.outputs.has_discord == 'true'
+        continue-on-error: true
+        env:
+          DISCORD_DEPLOY_WEBHOOK_URL: ${{ secrets.DISCORD_DEPLOY_WEBHOOK_URL }}
+        run: |
+          python - <<'PY' > payload.json
+          import json
+          import os
+
+          repo = os.environ["GITHUB_REPOSITORY"]
+          ref = os.environ["GITHUB_REF_NAME"]
+          sha = os.environ["GITHUB_SHA"][:7]
+          actor = os.environ["GITHUB_ACTOR"]
+          run_url = f"{os.environ['GITHUB_SERVER_URL']}/{repo}/actions/runs/{os.environ['GITHUB_RUN_ID']}"
+
+          payload = {
+              "content": (
+                  f"Deploy webhook completed for `{repo}` on `{ref}`.\n"
+                  f"Commit: `{sha}` by `{actor}`\n"
+                  f"Run: {run_url}"
+              )
+          }
+
+          print(json.dumps(payload))
+          PY
+
+          curl -fsS -H "Content-Type: application/json" \
+            -X POST "$DISCORD_DEPLOY_WEBHOOK_URL" \
+            --data @payload.json
+
+      - name: Notify Discord on deploy failure
+        if: failure() && steps.secrets.outputs.skip != 'true' && steps.secrets.outputs.has_discord == 'true'
+        continue-on-error: true
+        env:
+          DISCORD_DEPLOY_WEBHOOK_URL: ${{ secrets.DISCORD_DEPLOY_WEBHOOK_URL }}
+        run: |
+          python - <<'PY' > payload.json
+          import json
+          import os
+
+          repo = os.environ["GITHUB_REPOSITORY"]
+          ref = os.environ["GITHUB_REF_NAME"]
+          sha = os.environ["GITHUB_SHA"][:7]
+          actor = os.environ["GITHUB_ACTOR"]
+          run_url = f"{os.environ['GITHUB_SERVER_URL']}/{repo}/actions/runs/{os.environ['GITHUB_RUN_ID']}"
+
+          payload = {
+              "content": (
+                  f"Deploy webhook failed for `{repo}` on `{ref}`.\n"
+                  f"Commit: `{sha}` by `{actor}`\n"
+                  f"Run: {run_url}"
+              )
+          }
+
+          print(json.dumps(payload))
+          PY
+
+          curl -fsS -H "Content-Type: application/json" \
+            -X POST "$DISCORD_DEPLOY_WEBHOOK_URL" \
+            --data @payload.json
